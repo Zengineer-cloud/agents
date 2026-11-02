@@ -78,6 +78,22 @@ Link each level to an action from Anthropic's own guidance. At amber, suggest /r
 
 Keep the tiers in a per model table, not in code constants. The Claude 4.6 curve is already much flatter than GPT-5.4 and Gemini 3.x, and newer models will probably push the knee further out. When independent MRCR or agent results for Opus 5.5 or Sonnet 5.5 appear, raise the 1M tiers if they hold above 90% at 512K. Until then, these values lean cautious, because the cost of an early nudge is small and the cost of a poisoned session is a full restart.
 
+## What the session does predicts failure better than its size
+
+Added 2026-11-01. A token count says when the risk rises; it does not say whether this session has gone wrong. Four observable signs have direct evidence, and the meter now watches for each one (`hooks/signals.ts`).
+
+**Corrections in a row.** Laban, Hayashi, Zhou and Neville gave the same tasks to frontier models in one prompt and spread over several turns. Multi-turn scores fell by **39% on average**, mostly from a **112% rise in unreliability**, not a loss of skill. Models make early assumptions and "get lost and do not recover", already at two turns. A recap at the end only partly helped (GPT-4o 76.6 vs 59.1 sharded, 93.0 single prompt), while all the instructions in one prompt scored about **95% of single-turn** ([arXiv 2505.06120, May 2025, ICLR 2026](https://arxiv.org/abs/2505.06120)). Anthropic's own rule is "after two failed corrections run /clear and write a better prompt" ([best practices](https://code.claude.com/docs/en/best-practices)). The meter counts prompts that correct the last answer and speaks at two in a row.
+
+**Loops.** Breunig names four ways long contexts fail: poisoning, distraction, confusion and clash. A poisoned or distracted agent repeats itself: Gemini 2.5 playing Pokémon began to repeat past actions "beyond 100k tokens", which he flags as anecdotal ([How Long Contexts Fail, 2025-06-22](https://www.dbreunig.com/2025/06/22/how-contexts-fail-and-how-to-fix-them.html)). The meter flags the same call failing three times within twelve calls, and an edit that puts back what an earlier edit took out.
+
+**Idle near the cache expiry.** The prompt cache lasts about an hour on a subscription; past it, the next message re-reads the whole context uncached, and Claude Code itself compacts an idle session past about 200K ([best practices](https://code.claude.com/docs/en/best-practices)). The meter warns five minutes before the hour when the context holds 200K or more, and lets the engine's idle compaction through instead of holding it.
+
+**"Done" late in a long context.** Xue ran a coding agent on the same audit task with clean and long contexts (about 11K vs 299K characters). Strict success fell from **8/10 to 3/10** (p = 0.07, small), while requirement coverage stayed above 92%: the failures were quiet omissions. **38 of 44 failed rows still closed with an explicit claim of success** ([arXiv 2607.17937v2, Aug 2026](https://arxiv.org/html/2607.17937v2)). Past the dumb-zone mark, the meter adds one check-it note per context when Claude says it is done.
+
+Two more results back the direction without a signal of their own. On SWE-bench Verified, "successful agentic trajectories typically remain under 20k-30k tokens", and success comes from splitting work into short-context steps ([Raju et al., arXiv 2602.16069, Feb 2026](https://arxiv.org/abs/2602.16069)). Removing distractors keeps or raises long-context scores while blind truncation lowers them, so moving bulky output out of context beats cutting it ([Arjmandi, arXiv 2608.03297, Aug 2026](https://arxiv.org/abs/2608.03297)). Tool count also matters: a small Llama failed with 46 tools and succeeded with 19 ([Breunig](https://www.dbreunig.com/2025/06/22/how-contexts-fail-and-how-to-fix-them.html)), but frontier-model thresholds are practitioner estimates, so the meter does not warn on it.
+
+The correction and "done" detectors are word patterns, so they miss some cases and catch a few wrong ones. Each sign clears on the next prompt and costs one toast, so a false alarm is cheap.
+
 ## Conclusion
 
 The real finding is that "percent of window" was a proxy that worked only while every Claude Code window was 200K. Once windows reached 1M, the same percent moved the warning from about 80K to 400K tokens, while measured degradation stayed tied to token counts near 128K to 256K. A meter that keeps percent as its main unit will drift further from reality with each larger window.

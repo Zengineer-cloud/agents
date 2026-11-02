@@ -531,3 +531,63 @@ test('the band draws nothing before the first reading', async ($, on) => {
   expect(await ui.find({ key: 'toggle' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('two corrections in a row raise a sign on the band; a new request clears it', async ($, on) => {
+  const seen = answer(on, 40)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await typed($, 'no, that is the wrong file')
+  expect(seen.toasts.some(t => t.includes('corrections in a row'))).toBe(false)
+  await typed($, "it's still broken")
+  await settle()
+  expect(seen.toasts.some(t => t.includes('2 corrections in a row'))).toBe(true)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  expect(await ui.find({ type: 'Text', text: /⚠ 2 corrections in a row/ })).toBeDefined()
+  // The sign makes the Handoff button solid even before the dumb zone.
+  expect((await ui.find({ key: 'handoff' }))?.props.plain).toBeUndefined()
+  await typed($, 'now add a footer to the page')
+  await settle()
+  expect(await ui.find({ type: 'Text', text: /corrections in a row/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the same call failing three times is a loop; succeeding again is not', async ($, on) => {
+  const seen = answer(on, 40)
+  let fails = true
+  on('tool.call', () => (fails ? { result: 'exit 1', isError: true } : { result: 'ok' }) as never)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const run = (command: string) => $.tool.call({ tool: 'Bash', command, tool_use_id: command } as never)
+  await run('pnpm test')
+  await run('pnpm test')
+  await settle()
+  expect(seen.toasts.some(t => t.includes('failed'))).toBe(false)
+  await run('pnpm test')
+  await settle()
+  expect(seen.toasts.some(t => t.startsWith('Bash pnpm test failed 3× in a row'))).toBe(true)
+  fails = false
+  const before = seen.toasts.length
+  await run('git status')
+  await run('git status')
+  await run('git status')
+  await settle()
+  expect(seen.toasts.length).toBe(before)
+})
+
+test('"done" late in a long context gets one check-it note per context', async ($, on) => {
+  const seen = answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const done = () => $.turn.complete({ turnId: 't', answer: 'Updated the parser. All tests pass.', durationMs: 1, isAborted: false, reason: 'answer' })
+  await done()
+  await settle()
+  expect(seen.toasts.filter(t => t.startsWith('Claude says it is done')).length).toBe(1)
+  await done()
+  await settle()
+  expect(seen.toasts.filter(t => t.startsWith('Claude says it is done')).length).toBe(1)
+})
+
+test('"done" before the dumb zone says nothing', async ($, on) => {
+  const seen = answer(on, 30)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await $.turn.complete({ turnId: 't', answer: 'Done.', durationMs: 1, isAborted: false, reason: 'answer' })
+  await settle()
+  expect(seen.toasts.some(t => t.startsWith('Claude says it is done'))).toBe(false)
+})

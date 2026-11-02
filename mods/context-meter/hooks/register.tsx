@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Category, Detail, Handoff, Meter, Setup } from '../types'
+import type { Category, Detail, Handoff, Meter, Setup, Signal } from '../types'
 import {
   EFFORTS,
   HANDOFF_COMMAND,
@@ -36,6 +36,20 @@ import {
   zoneHint,
   zoneName,
 } from './rules'
+import {
+  CACHE_TTL_MS,
+  CORRECTIONS_LIMIT,
+  IDLE_TOKENS,
+  IDLE_WARN_BEFORE_MS,
+  callOf,
+  claimsDone,
+  doneWarning,
+  idleWarning,
+  isCorrection,
+  loopIn,
+  signalText,
+} from './signals'
+import type { Call } from './signals'
 
 const meter = atom({ plugin: 'context-meter', key: 'meter' } as const, null as Meter | null)
 const detail = atom({ plugin: 'context-meter', key: 'detail' } as const, null as Detail | null)
@@ -44,6 +58,8 @@ const isOpen = atom({ plugin: 'context-meter', key: 'isOpen' } as const, false)
 // The highest warning stage already shown; kept in state so a reload doesn't repeat a toast.
 const warned = atom({ plugin: 'context-meter', key: 'warned' } as const, 0)
 const handoff = atom({ plugin: 'context-meter', key: 'handoff' } as const, null as Handoff | null)
+// The warning sign the band shows until the next prompt (see signals.ts).
+const signal = atom({ plugin: 'context-meter', key: 'signal' } as const, null as Signal | null)
 
 const PHASE_TEXT: Record<Handoff['phase'], string> = {
   queued: 'handoff queued: it starts when this turn ends',
@@ -72,6 +88,30 @@ let holdsThisTurn = 0
 let lastTurnFailed = false
 // The hold is announced once per context, not on every turn it repeats.
 let holdToasted = false
+
+// The warning signs' memory, per process: corrections in a row, the recent
+// tool calls, when the last turn ended and whether one runs now, the idle
+// timer, and whether "done" was already flagged in this context.
+let corrections = 0
+let calls: Call[] = []
+let lastTurnEndAt = 0
+let turnActive = false
+let idleTimer: { cancel: () => void } | undefined
+let doneFlagged = false
+// Idle this long, an engine compaction is the cache-expiry one, not a full window.
+const IDLE_COMPACT_MS = 5 * 60_000
+
+// A fresh context (a handoff's clear, a compaction) starts the signs over.
+function resetSignals() {
+  corrections = 0
+  calls = []
+  doneFlagged = false
+}
+
+async function raise($: EngineInterface, next: Signal, toast?: string) {
+  await update($, signal, () => next)
+  if (toast) $.ui.toast(toast, { timeoutMs: 12000 })
+}
 
 // The free figures: fill, limits and cost. Cheap enough for every tool call.
 // `tokensHint` stands in when the engine has no count yet (right after a compaction).
@@ -216,6 +256,7 @@ async function resetContext($: EngineInterface, path: string) {
     await $.command.run({ command: 'clear', args: '' })
     lastClearAt = at
     holdToasted = false
+    resetSignals()
   } catch {
     how = 'compacted'
     if (!(await runCommand($, 'compact', compactInstructions(path)))) {
@@ -238,6 +279,43 @@ async function resetContext($: EngineInterface, path: string) {
   }
 }
 
+// The person's own prompt: it ends the last warning sign, and counts toward a
+// run of corrections.
+async function notePrompt($: EngineInterface, text: string) {
+  corrections = isCorrection(text) ? corrections + 1 : 0
+  if (corrections < CORRECTIONS_LIMIT) return void (await update($, signal, () => null))
+  const toast =
+    corrections === CORRECTIONS_LIMIT
+      ? `${corrections} corrections in a row. Models that take a wrong turn rarely recover in the same conversation: ask Claude to consolidate what you've said into one prompt, then hand off.`
+      : undefined
+  await raise($, { kind: 'corrections', text: signalText.corrections(corrections) }, toast)
+}
+
+// The end of a main-loop turn: "done" said late in a long context gets one
+// check-it note per context, and a large idle context a warning before the
+// prompt cache expires.
+async function noteTurnEnd($: EngineInterface, answer: string | undefined) {
+  const m = await read($, meter)
+  if (!m) return
+  const mk = marks(m.window, (await read($, detail))?.autoCompactAt)
+  if (answer !== undefined && !doneFlagged && m.tokens >= mk.dumb && claimsDone(answer)) {
+    doneFlagged = true
+    await raise($, { kind: 'done', text: signalText.done() }, doneWarning(m.tokens))
+  }
+  idleTimer?.cancel()
+  idleTimer = undefined
+  if (m.tokens < IDLE_TOKENS) return
+  idleTimer = $.clock.after(CACHE_TTL_MS - IDLE_WARN_BEFORE_MS, () => {
+    idleTimer = undefined
+    void quietly(
+      read($, meter).then(now => {
+        if (turnActive || !now || now.tokens < IDLE_TOKENS) return
+        return raise($, { kind: 'idle', text: signalText.idle() }, idleWarning(now.tokens))
+      }),
+    )
+  })
+}
+
 // A read-back this chat still owes from a session that ended before it ran, if recent.
 async function pendingReadBack($: EngineInterface): Promise<Pending | undefined> {
   if (pending === undefined) return undefined
@@ -257,6 +335,11 @@ export const register: Register = on => {
     holdToasted = false
     holdsThisTurn = 0
     lastTurnFailed = false
+    resetSignals()
+    turnActive = false
+    lastTurnEndAt = 0
+    idleTimer?.cancel()
+    idleTimer = undefined
     await quietly($.command.register(HANDOFF_COMMAND))
     // The breakdown first: it says which window the meter measures against.
     await quietly(refreshDetail($))
@@ -279,6 +362,10 @@ export const register: Register = on => {
   // `[1m]` mark, so the model comes from `$.session.model()` instead.
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
+      // A main-loop request: a turn runs, so the idle warning is moot.
+      turnActive = true
+      idleTimer?.cancel()
+      idleTimer = undefined
       const { effort } = e
       void quietly(update($, setup, prev => (prev?.effort === effort ? prev : { options: [], ...prev, effort })))
     }
@@ -290,7 +377,22 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     // Not awaited, so the meter never holds up a tool result.
-    if (e.agentId === undefined) void quietly(refresh($, false))
+    if (e.agentId === undefined) {
+      void quietly(refresh($, false))
+      const isError = 'isError' in result && result.isError === true
+      calls = [...calls, callOf(e.tool, e as unknown as Record<string, unknown>, isError)].slice(-24)
+      const loop = loopIn(calls)
+      if (loop) {
+        const text = signalText.loop(loop)
+        void quietly(
+          read($, signal).then(cur =>
+            cur?.text === text
+              ? undefined
+              : raise($, { kind: 'loop', text }, `${text}. A step that keeps failing or flipping is a common sign of a confused context.`),
+          ),
+        )
+      }
+    }
     return result
   })
 
@@ -300,6 +402,9 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     // Typed at the terminal, or sent by the Desktop app (`sdk`); never a plugin's own.
     if (e.origin.kind !== 'composer' && e.origin.kind !== 'sdk') return next(e)
+    // A slash command or a hidden prompt is no correction. Older engines lack both fields.
+    const flags = e as { command?: unknown; isMeta?: unknown }
+    if (!flags.command && !flags.isMeta) await quietly(notePrompt($, e.text))
     const job = await read($, handoff)
     if (job?.path && (job.phase === 'writing' || job.phase === 'clearing')) {
       return next({
@@ -325,8 +430,11 @@ export const register: Register = on => {
     // it is held, and the person hands off when ready. Near the hard limit it
     // runs; so does the second attempt in one turn, and the one after a failed
     // turn, because then the request itself is too long and no doc can help.
+    // Idle, the engine compacts to spare a cache-expired re-read; that one runs.
+    const isIdle = !turnActive && lastTurnEndAt > 0 && (await $.clock.now()) - lastTurnEndAt >= IDLE_COMPACT_MS
     if (
       e.trigger === 'auto' &&
+      !isIdle &&
       job?.phase !== 'clearing' &&
       m &&
       m.tokens < forcedCompactAt(m.window) &&
@@ -347,6 +455,7 @@ export const register: Register = on => {
     // A compaction ends no turn: record its drop and redraw at once. The engine
     // has no count until the next response, so the compaction's own stands in.
     const after = result.skip === undefined ? result.tokensAfter : undefined
+    if (result.skip === undefined) resetSignals()
     void quietly(refreshDetail($).then(() => refresh($, true, after)))
     return result
   })
@@ -369,6 +478,9 @@ export const register: Register = on => {
       await quietly(refresh($, true))
       if ((await read($, handoff))?.phase === 'queued') await quietly(beginHandoff($))
       void quietly(refreshSetup($))
+      turnActive = false
+      lastTurnEndAt = await $.clock.now()
+      await quietly(noteTurnEnd($, e.reason === 'answer' ? e.answer : undefined))
     }
     return result
   })
@@ -386,6 +498,8 @@ export const register: Register = on => {
     const s = await read($, setup)
     const now = await $.clock.now()
     const job = await read($, handoff)
+    // A warning sign outranks the trend, never a handoff in progress.
+    const sign = job ? null : await read($, signal)
     const wide = e.props.bodyColumns >= 90
     const autoCompactAt = d?.autoCompactAt
     const mk = marks(m.window, autoCompactAt)
@@ -425,13 +539,14 @@ export const register: Register = on => {
 
     // Doc, fresh context, read-back: the steps the meter runs on entering the
     // dumb zone. Offered at any fill, so a natural break can take it early;
-    // quiet before the zone, a button inside it.
+    // quiet before the zone, a button inside it or while a warning sign shows.
+    const isUrgent = isDumb || sign !== null
     const handoffButton =
       !e.props.isWorking && (job === null || job.phase === 'queued') ? (
         <Button
           key="handoff"
-          {...(isDumb ? {} : { plain: true as const, dimColor: true })}
-          label={isDumb ? 'Handoff' : '⇥ Handoff'}
+          {...(isUrgent ? {} : { plain: true as const, dimColor: true })}
+          label={isUrgent ? 'Handoff' : '⇥ Handoff'}
           onPress={() => quietly(beginHandoff($))}
         />
       ) : null
@@ -462,7 +577,11 @@ export const register: Register = on => {
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
           <Text>
             <Text color={color}>{`● ${zone.charAt(0).toUpperCase()}${zone.slice(1)}`}</Text>
-            <Text dimColor>{trend ? ` · ${trend}` : ''}</Text>
+            {sign ? (
+              <Text color="warning">{` · ⚠ ${sign.text}`}</Text>
+            ) : (
+              <Text dimColor>{trend ? ` · ${trend}` : ''}</Text>
+            )}
           </Text>
           <Box flexDirection="row" gap={2} alignItems="center">
             {handoffButton}
@@ -486,6 +605,7 @@ export const register: Register = on => {
           {trend ? ` · ${trend}` : ''}
           {fiveHour ? ` · 5h ${Math.round(fiveHour.percent)}%` : ''}
         </Text>
+        {sign ? <Text color="warning">{`⚠ ${sign.text}`}</Text> : null}
         {handoffButton}
       </Box>
     )
@@ -591,6 +711,12 @@ export const register: Register = on => {
               'Zone',
               cap(zone),
               ` · ${zoneHint(zone, mk)}`,
+            )}
+            {fact(
+              'Signals',
+              sign ? sign.text : 'none',
+              ` · watching for corrections in a row, repeated failing calls, idle near cache expiry, and "done" past ${compact(mk.dumb)}`,
+              true,
             )}
             {fact(
               'Growth',
