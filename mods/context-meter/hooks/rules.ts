@@ -103,6 +103,18 @@ export function resetIn(iso: string | undefined, now: number): string | undefine
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(at).getDay()]
 }
 
+// One limit as the band shows it. The engine's figure only moves on a response,
+// so a window whose reset time has passed still carries the old percent while
+// the session sits idle: show it as fresh (0%, "reset") until the next reading.
+export function limitRow(
+  l: { kind: string; percent: number; resetsAt?: string },
+  now: number,
+): { name: string; percent: number; reset?: string } {
+  const at = l.resetsAt === undefined ? NaN : Date.parse(l.resetsAt)
+  if (!Number.isNaN(at) && at <= now) return { name: limitName(l.kind), percent: 0, reset: 'just now' }
+  return { name: limitName(l.kind), percent: l.percent, reset: resetIn(l.resetsAt, now) }
+}
+
 // The last two path parts: `.claude/CLAUDE.md`.
 export const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
 
@@ -144,18 +156,14 @@ export function modelName(id: string): string {
   return `${cap(m[1]!)} ${version}`
 }
 
-// ── the desktop card ──────────────────────────────────────────────────────────
+// ── the desktop strip ─────────────────────────────────────────────────────────
 
 const COLORS = { success: '#2ea043', warning: '#d29922', error: '#f85149' } as const
 
-export type Card = {
+export type Strip = {
   percent: number
   tokens: number
   window: number
-  growth?: string
-  left?: string
-  // A handoff in progress; it takes the place of growth and the countdown.
-  status?: string
   // The session's marks; the window's own when absent.
   marks?: Marks
   limits: { name: string; percent: number; reset?: string }[]
@@ -163,96 +171,90 @@ export type Card = {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-// The card's grid, in viewBox units. The surface scales the whole drawing to
-// the slot, so only the proportions matter: three columns that never touch.
-const CARD = {
+// The strip's grid, in viewBox units: one line, the context on the left and a
+// block per rate limit on the right. Drawn at this size, scaled down when the
+// slot is narrower, so only the proportions matter.
+const STRIP = {
   w: 760,
-  h: 96,
-  ring: { cx: 48, cy: 48, r: 34 },
-  // The text column: the figures, the zone, then growth. Clipped at its edge.
-  text: { x: 104, right: 516 },
-  // The rate-limit column: one label and bar per limit.
-  limits: { x: 540, w: 204, first: 24, step: 36 },
+  h: 24,
+  // Text baseline and the bars' centre line.
+  y: 16,
+  bar: { x: 92, w: 236, h: 4 },
+  percentX: 340,
+  // The hairline between the context and the limits.
+  ruleX: 392,
+  limits: { x: 408, step: 176, bar: 54 },
 } as const
+
+// Hover text for the context bar: the zone and what it means.
+const zoneTitle = (tokens: number, m: Marks) => {
+  const zone = zoneName(tokens, m)
+  return `${zone.charAt(0).toUpperCase()}${zone.slice(1)}: ${zoneHint(zone, m)}`
+}
+
+// A reset as the strip shows it: "4h 58m", "Tue", "reset".
+const shortReset = (reset: string | undefined) =>
+  reset === undefined ? '' : reset === 'just now' ? 'reset' : reset.replace(/^in /, '')
+
+// One line of thin bars: the token figures, the context bar with ticks at the
+// quality marks, the percent, then each rate limit with its reset. The longer
+// words (the zone's meaning, the full reset) are hover titles, so the strip
+// stays one quiet line. Colors follow light or dark.
+export function stripSvg(c: Strip): string {
+  const { w: W, h: H, y, bar, limits } = STRIP
+  const m = c.marks ?? marks(c.window)
+  const color = COLORS[contextLevel(c.tokens, m)]
+  const fill = Math.min(c.percent, 100) / 100
+  const top = y - bar.h / 2 - 3
+  const ticks = [m.fading, m.dumb].map(t => {
+    const x = bar.x + (bar.w * Math.min(t, c.window)) / c.window
+    return `<line x1="${x.toFixed(1)}" y1="${y - 6}" x2="${x.toFixed(1)}" y2="${y + 4}" stroke-width="1" class="tick"/>`
+  })
+  const figure = compact(c.tokens)
+  const blocks = c.limits.slice(0, 2).map((l, i) => {
+    const x = limits.x + i * limits.step
+    const lc = COLORS[level(l.percent)]
+    const pct = `${Math.round(l.percent)}%`
+    const full = l.reset ? ` · ${l.reset === 'just now' ? 'reset' : 'resets'} ${l.reset}` : ''
+    return (
+      `<g><title>${esc(`${l.name} limit ${pct}${full}`)}</title>` +
+      `<rect x="${x}" y="0" width="${limits.step - 8}" height="${H}" fill="transparent"/>` +
+      `<text x="${x}" y="${y}" font-size="12" class="m">${esc(l.name)}</text>` +
+      `<rect x="${x + 22}" y="${y - 6}" width="${limits.bar}" height="${bar.h}" rx="2" class="track"/>` +
+      `<rect x="${x + 22}" y="${y - 6}" width="${Math.max(2, (limits.bar * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="${bar.h}" rx="2" fill="${lc}"/>` +
+      `<text x="${x + 84}" y="${y}" font-size="12" font-weight="600" class="t">${esc(pct)}</text>` +
+      `<text x="${x + 116}" y="${y}" font-size="12" class="m">${esc(fit(shortReset(l.reset), limits.step - 124, 12))}</text>` +
+      `</g>`
+    )
+  })
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.tick{stroke:#59636e}.rule{stroke:#d1d9e0}` +
+    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.tick{stroke:#9198a1}.rule{stroke:#3d444d}}` +
+    `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
+    // The context: figures, bar with the marks, percent. One hover title for all.
+    `<g><title>${esc(zoneTitle(c.tokens, m))}</title>` +
+    `<rect x="0" y="0" width="${STRIP.ruleX - 8}" height="${H}" fill="transparent"/>` +
+    `<text x="0" y="${y}" font-size="14" font-weight="600" class="t">${esc(figure)}` +
+    `<tspan class="m" font-size="12" font-weight="400"> / ${esc(compact(c.window))}</tspan></text>` +
+    `<rect x="${bar.x}" y="${top + 3}" width="${bar.w}" height="${bar.h}" rx="2" class="track"/>` +
+    `<rect x="${bar.x}" y="${top + 3}" width="${c.tokens > 0 ? Math.max(2, bar.w * fill).toFixed(1) : 0}" height="${bar.h}" rx="2" fill="${color}"/>` +
+    ticks.join('') +
+    `<text x="${STRIP.percentX}" y="${y}" font-size="12" font-weight="600" fill="${color}">${c.percent}%</text>` +
+    `</g>` +
+    (blocks.length
+      ? `<line x1="${STRIP.ruleX}" y1="5" x2="${STRIP.ruleX}" y2="${H - 5}" stroke-width="1" class="rule"/>`
+      : '') +
+    blocks.join('') +
+    `</svg>`
+  )
+}
 
 // Cuts a line to fit its column, by an average glyph width for the font size
 // (a UI sans at mixed case and digits runs near half the size per glyph).
 export function fit(text: string, widthPx: number, fontSize: number): string {
   const max = Math.floor(widthPx / (fontSize * 0.5))
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`
-}
-
-// One SVG: a ring gauge with the fill and ticks at the quality marks, the token
-// figures large, the quality zone, the growth, and a bar per rate limit. Each
-// line is cut to its column and the column is clipped, so nothing overlaps.
-// Colors follow light or dark.
-export function cardSvg(c: Card): string {
-  const { w: W, h: H, ring, text, limits } = CARD
-  const circ = 2 * Math.PI * ring.r
-  const fill = Math.min(c.percent, 100) / 100
-  const m = c.marks ?? marks(c.window)
-  const color = COLORS[contextLevel(c.tokens, m)]
-  const zone = zoneName(c.tokens, m)
-  const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1)
-  const sub = c.status ?? [c.growth, c.left].filter(Boolean).join(' · ')
-  const col = text.right - text.x
-  // Ticks across the ring at the fading and dumb-zone marks.
-  const ticks = [m.fading, m.dumb].map(t => {
-    const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
-    const [x1, y1, x2, y2] = [
-      ring.cx + (ring.r - 7) * Math.cos(a),
-      ring.cy + (ring.r - 7) * Math.sin(a),
-      ring.cx + (ring.r + 7) * Math.cos(a),
-      ring.cy + (ring.r + 7) * Math.sin(a),
-    ]
-    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="2" class="tick"/>`
-  })
-  const bars = c.limits.slice(0, 2).map((l, i) => {
-    const y = limits.first + i * limits.step
-    const lc = COLORS[level(l.percent)]
-    const reset = l.reset ? ` · resets ${l.reset}` : ''
-    const label = fit(`${l.name} limit ${Math.round(l.percent)}%${reset}`, limits.w, 12)
-    const pct = `${Math.round(l.percent)}%`
-    // The percent in full strength, the rest dim; split only when the cut kept it.
-    const at = label.indexOf(pct)
-    const labelMarkup =
-      at >= 0
-        ? `${esc(label.slice(0, at))}<tspan class="t" font-weight="600">${esc(pct)}</tspan>${esc(label.slice(at + pct.length))}`
-        : esc(label)
-    return (
-      `<text x="${limits.x}" y="${y}" class="m" font-size="12">${labelMarkup}</text>` +
-      `<rect x="${limits.x}" y="${y + 8}" width="${limits.w}" height="6" rx="3" class="track"/>` +
-      `<rect x="${limits.x}" y="${y + 8}" width="${Math.max(3, (limits.w * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="6" rx="3" fill="${lc}"/>`
-    )
-  })
-  const figure = `${compact(c.tokens)}`
-  const suffix = ` / ${compact(c.window)} context`
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.ring{stroke:#d1d9e0}.tick{stroke:#59636e}.rule{stroke:#d1d9e0}` +
-    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.ring{stroke:#3d444d}.tick{stroke:#9198a1}.rule{stroke:#3d444d}}` +
-    `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
-    `<defs><clipPath id="col"><rect x="${text.x}" y="0" width="${col}" height="${H}"/></clipPath></defs>` +
-    // The ring: track, fill, the marks, the percent.
-    `<circle cx="${ring.cx}" cy="${ring.cy}" r="${ring.r}" fill="none" stroke-width="9" class="ring"/>` +
-    `<circle cx="${ring.cx}" cy="${ring.cy}" r="${ring.r}" fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round" ` +
-    `stroke-dasharray="${(circ * fill).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${ring.cx} ${ring.cy})"/>` +
-    ticks.join('') +
-    `<text x="${ring.cx}" y="${ring.cy + 7}" text-anchor="middle" font-size="20" font-weight="700" class="t">${c.percent}%</text>` +
-    // The text column, three lines, clipped at its right edge.
-    `<g clip-path="url(#col)">` +
-    `<text x="${text.x}" y="34" font-size="26" font-weight="700" class="t">${esc(figure)}` +
-    `<tspan class="m" font-size="16" font-weight="400">${esc(fit(suffix, col - figure.length * 15, 16))}</tspan></text>` +
-    `<circle cx="${text.x + 5}" cy="54" r="4" fill="${color}"/>` +
-    `<text x="${text.x + 15}" y="59" font-size="13" class="t" font-weight="600">${esc(zoneLabel)}` +
-    `<tspan class="m" font-weight="400">${esc(fit(` · ${zoneHint(zone, m)}`, col - 15 - zoneLabel.length * 8, 13))}</tspan></text>` +
-    `<text x="${text.x}" y="82" font-size="13" class="m">${esc(fit(sub || 'measuring growth after the next turn', col, 13))}</text>` +
-    `</g>` +
-    // A hairline between the text and the limits.
-    (bars.length ? `<line x1="${limits.x - 16}" y1="18" x2="${limits.x - 16}" y2="${H - 18}" stroke-width="1" class="rule"/>` : '') +
-    bars.join('') +
-    `</svg>`
-  )
 }
 
 // The highest stage newly reached (1 fading, 2 dumb zone), or undefined. A drop

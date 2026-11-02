@@ -10,7 +10,6 @@ import {
   aliasOf,
   averageGrowth,
   baseline,
-  cardSvg,
   compact,
   compactInstructions,
   contextLevel,
@@ -21,15 +20,15 @@ import {
   handoffPath,
   handoffPrompt,
   lastDelta,
-  limitName,
+  limitRow,
   forcedCompactAt,
   marks,
   parseAlias,
   readPrompt,
-  resetIn,
   signed,
   sparkline,
   stageOf,
+  stripSvg,
   turnsLeft,
   warning,
   windowNote,
@@ -350,6 +349,13 @@ export const register: Register = on => {
     return result
   })
 
+  // The engine pushes a measurement when a rate-limit window moves a whole
+  // point, so the limits refill after a reset without waiting for a tool call.
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) await quietly(refresh($, false))
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     // Subagents have their own context; only the main conversation counts here.
@@ -393,6 +399,7 @@ export const register: Register = on => {
       left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'a forced compact' : 'full') : 'the handoff'}`
     const status = job ? PHASE_TEXT[job.phase] : undefined
     const note = windowNote(d?.window, m.window)
+    const fiveHour = m.limits.filter(l => l.kind === 'five_hour').map(l => limitRow(l, now))[0]
     const current = s?.alias ? parseAlias(s.alias) : undefined
     // The engine's own band (and any plugin's beneath) stays; this one goes under it.
     const below = await next(e)
@@ -403,6 +410,7 @@ export const register: Register = on => {
       <Button
         key="toggle"
         plain
+        dimColor
         {...(Svg ? {} : { hotkey: 'd' })}
         label={Svg ? `${open ? '▾' : '▸'} Details` : `${open ? '▾' : '▸'} Context`}
         onPress={async () => {
@@ -413,56 +421,6 @@ export const register: Register = on => {
       />
     )
 
-    // The big view where the surface draws images; a text row in the terminal.
-    // The card holds the figures only: a sentence that may run long (the window
-    // note) is a text row under it, where it wraps.
-    const headline =
-      Svg ? (
-        <Box flexDirection="column">
-          <Svg
-            key="card"
-            alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
-            source={cardSvg({
-              percent: m.percent,
-              tokens: m.tokens,
-              window: m.window,
-              growth: delta !== undefined ? `${signed(delta)} last turn` : undefined,
-              left: leftText,
-              status,
-              marks: mk,
-              limits: m.limits.map(l => ({ name: limitName(l.kind), percent: l.percent, reset: resetIn(l.resetsAt, now) })),
-            })}
-          />
-          {note ? (
-            <Box paddingLeft={1}>
-              <Text dimColor>{note}</Text>
-            </Box>
-          ) : null}
-        </Box>
-      ) : (
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {toggle}
-          <Text>
-            <Text color={color}>{gauge(m.tokens, m.window, wide ? 24 : 12).filled}</Text>
-            <Text dimColor>{gauge(m.tokens, m.window, wide ? 24 : 12).empty}</Text>
-          </Text>
-          <Text bold color={color}>
-            {m.percent}%
-          </Text>
-          <Text color={color}>{zoneName(m.tokens, mk)}</Text>
-          <Text dimColor>
-            {compact(m.tokens)}/{compact(m.window)}
-            {status ? ` · ${status}` : ''}
-            {!status && delta !== undefined ? ` · ${signed(delta)} last turn` : ''}
-            {!status && leftText ? ` · ${leftText}` : ''}
-            {!status && note ? ` · ${note}` : ''}
-            {m.limits.find(l => l.kind === 'five_hour') ? ` · 5h ${Math.round(m.limits.find(l => l.kind === 'five_hour')!.percent)}%` : ''}
-          </Text>
-        </Box>
-      )
-
-    const options = s?.options ?? []
-    const at = effort ? EFFORTS.indexOf(effort as (typeof EFFORTS)[number]) : -1
     // Doc, fresh context, read-back: the steps the meter runs on entering the
     // dumb zone. Offered at any fill, so a natural break can take it early;
     // quiet before the zone, a button inside it.
@@ -475,54 +433,59 @@ export const register: Register = on => {
           onPress={() => quietly(beginHandoff($))}
         />
       ) : null
-    // Two quiet rows, each a label column, its control, and an action at the
-    // right edge: a radio group for the model with Details, a stepped slider
-    // for effort with Handoff. Plain Buttons draw as bare text, so the glyphs
-    // carry the state.
-    const label = (text: string) => (
-      <Box width={8}>
-        <Text dimColor>{text}</Text>
-      </Box>
-    )
-    const controls = (
+
+    // What the context is doing: a handoff's phase while one runs, else the
+    // growth and the countdown. The window note rides along; it can wrap.
+    const trend = status
+      ? status
+      : [delta !== undefined ? `${signed(delta)} last turn` : undefined, leftText, note].filter(Boolean).join(' · ')
+    const zone = zoneName(m.tokens, mk)
+
+    // Two quiet lines. Where the surface draws images: a thin strip of bars
+    // (context, then each rate limit), and under it the zone and trend with
+    // Handoff and Details at the right. In the terminal, one text row.
+    const headline = Svg ? (
       <Box flexDirection="column">
+        <Svg
+          key="card"
+          isInteractive
+          alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
+          source={stripSvg({
+            percent: m.percent,
+            tokens: m.tokens,
+            window: m.window,
+            marks: mk,
+            limits: m.limits.map(l => limitRow(l, now)),
+          })}
+        />
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="center">
-            {options.length ? label('Model') : null}
-            {families(options).map(f => (
-              <Button
-                key={`model-${f}`}
-                plain
-                dimColor={current?.family !== f}
-                label={`${current?.family === f ? '◉' : '○'} ${f.charAt(0).toUpperCase() + f.slice(1)}`}
-                // The 1M variant wherever a family has one; Haiku has none and stays 200k.
-                onPress={() => runCommand($, 'model', aliasFor(f, true, options))}
-              />
-            ))}
+          <Box flexDirection="row" gap={1} flexShrink={1} flexWrap="wrap">
+            <Text color={color}>{`● ${zone.charAt(0).toUpperCase()}${zone.slice(1)}`}</Text>
+            {trend ? <Text dimColor>{`· ${trend}`}</Text> : null}
           </Box>
-          {Svg ? toggle : null}
-        </Box>
-        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="row" alignItems="center" flexWrap="wrap">
-            {label('Effort')}
-            <Text dimColor>low </Text>
-            {EFFORTS.map((choice, i) => (
-              <Box key={`stop-${choice}`} flexDirection="row">
-                {i > 0 ? <Text dimColor={i > at}>──</Text> : null}
-                <Button
-                  key={`effort-${choice}`}
-                  plain
-                  dimColor={i > at}
-                  label={i === at ? '◉' : i < at ? '●' : '○'}
-                  onPress={() => runCommand($, 'effort', choice)}
-                />
-              </Box>
-            ))}
-            <Text dimColor> max</Text>
-            <Text bold>{effort ? `  ${effort}` : ''}</Text>
+          <Box flexDirection="row" gap={2} alignItems="center">
+            {handoffButton}
+            {toggle}
           </Box>
-          {handoffButton}
         </Box>
+      </Box>
+    ) : (
+      <Box flexDirection="row" gap={1} flexWrap="wrap">
+        {toggle}
+        <Text>
+          <Text color={color}>{gauge(m.tokens, m.window, wide ? 24 : 12).filled}</Text>
+          <Text dimColor>{gauge(m.tokens, m.window, wide ? 24 : 12).empty}</Text>
+        </Text>
+        <Text bold color={color}>
+          {m.percent}%
+        </Text>
+        <Text color={color}>{zone}</Text>
+        <Text dimColor>
+          {compact(m.tokens)}/{compact(m.window)}
+          {trend ? ` · ${trend}` : ''}
+          {fiveHour ? ` · 5h ${Math.round(fiveHour.percent)}%` : ''}
+        </Text>
+        {handoffButton}
       </Box>
     )
 
@@ -531,10 +494,55 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {below}
           {headline}
-          {controls}
         </Box>
       )
     }
+
+    const options = s?.options ?? []
+    const at = effort ? EFFORTS.indexOf(effort as (typeof EFFORTS)[number]) : -1
+    const label = (text: string) => (
+      <Box width={8}>
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
+    // The session's settings, inside Details: a radio group for the model and a
+    // stepped slider for effort. Plain Buttons draw as bare text, so the glyphs
+    // carry the state.
+    const controls = (
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="center">
+          {options.length ? label('Model') : null}
+          {families(options).map(f => (
+            <Button
+              key={`model-${f}`}
+              plain
+              dimColor={current?.family !== f}
+              label={`${current?.family === f ? '◉' : '○'} ${f.charAt(0).toUpperCase() + f.slice(1)}`}
+              // The 1M variant wherever a family has one; Haiku has none and stays 200k.
+              onPress={() => runCommand($, 'model', aliasFor(f, true, options))}
+            />
+          ))}
+        </Box>
+        <Box flexDirection="row" alignItems="center" flexWrap="wrap">
+          {label('Effort')}
+          <Text dimColor>low </Text>
+          {EFFORTS.map((choice, i) => (
+            <Box key={`stop-${choice}`} flexDirection="row">
+              {i > 0 ? <Text dimColor={i > at}>──</Text> : null}
+              <Button
+                key={`effort-${choice}`}
+                plain
+                dimColor={i > at}
+                label={i === at ? '◉' : i < at ? '●' : '○'}
+                onPress={() => runCommand($, 'effort', choice)}
+              />
+            </Box>
+          ))}
+          <Text dimColor> max</Text>
+          <Text bold>{effort ? `  ${effort}` : ''}</Text>
+        </Box>
+      </Box>
+    )
 
     const used =(d?.categories ?? []).filter(c => c.kind === 'used').sort((a, z) => z.tokens - a.tokens)
     const rest = (d?.categories ?? []).filter(c => c.kind !== 'used')
@@ -582,8 +590,9 @@ export const register: Register = on => {
               <Text dimColor>
                 {m.limits
                   .map(l => {
-                    const when = resetIn(l.resetsAt, now)
-                    return `${limitName(l.kind)} ${Math.round(l.percent)}%${when ? ` (resets ${when})` : ''}`
+                    const r = limitRow(l, now)
+                    const when = r.reset === 'just now' ? ' (reset just now)' : r.reset ? ` (resets ${r.reset})` : ''
+                    return `${r.name} ${Math.round(r.percent)}%${when}`
                   })
                   .join(' · ')}
               </Text>

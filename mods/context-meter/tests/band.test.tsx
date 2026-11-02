@@ -155,19 +155,25 @@ const settle = async () => {
 
 const BAND = { plugin: 'context-meter', component: 'AbovePrompt' } as const
 
-test('desktop draws the big card, the terminal a text row with the same figures', async ($, on) => {
+test('desktop draws a thin strip and one zone line, the terminal a text row with the same figures', async ($, on) => {
   answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
   const card = await desk.find({ type: 'Svg' })
   expect(card?.props.alt).toBe('Context 60% full, 120k of 200k tokens')
-  // 120k: past the 100k dumb-zone mark. The model and effort live in the controls, not the card.
-  expect(String(card?.props.source)).toContain('Dumb zone')
+  expect(card?.props.isInteractive).toBe(true)
+  // 120k: past the 100k dumb-zone mark. The zone is a text line; its meaning a hover title.
+  expect(await desk.find({ type: 'Text', text: /Dumb zone/ })).toBeDefined()
   expect(String(card?.props.source)).toContain('past 100k: handoff, then a fresh context')
   expect(String(card?.props.source)).not.toContain('Opus')
-  expect(await desk.find({ key: 'model-opus' })).toBeDefined()
+  // The model and effort wait in Details; Handoff stays on the band.
+  expect(await desk.find({ key: 'model-opus' })).toBeUndefined()
+  expect(await desk.find({ key: 'effort-high' })).toBeUndefined()
   expect(await desk.find({ key: 'handoff' })).toBeDefined()
+  await desk.press({ key: 'toggle' })
+  expect(await desk.find({ key: 'model-opus' })).toBeDefined()
+  await desk.press({ key: 'toggle' })
   await desk.unmount()
 
   const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
@@ -208,6 +214,7 @@ test('model buttons pick the 1M variant wherever a family has one', async ($, on
   for (const surface of ['terminal', 'desktop'] as const) {
     runs.length = 0
     const ui = await $.ui.mount({ ...BAND, surface, props: props() })
+    await ui.press({ key: 'toggle' })
     expect((await ui.find({ key: 'model-opus' }))?.props.label).toBe('◉ Opus')
     expect((await ui.find({ key: 'model-sonnet' }))?.props.label).toBe('○ Sonnet')
     expect(await ui.find({ key: 'model-1m' })).toBeUndefined()
@@ -217,6 +224,7 @@ test('model buttons pick the 1M variant wherever a family has one', async ($, on
     await ui.press({ key: 'model-haiku' })
     await ui.press({ key: 'model-fable' })
     expect(runs).toEqual(['/model sonnet[1m]', '/model haiku', '/model fable[1m]'])
+    await ui.press({ key: 'toggle' })
     await ui.unmount()
   }
 })
@@ -225,6 +233,7 @@ test('effort buttons run /effort', async ($, on) => {
   const { runs } = answer(on, 40)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'toggle' })
   await ui.press({ key: 'effort-high' })
   await ui.press({ key: 'effort-max' })
   expect(runs).toEqual(['/effort high', '/effort max'])
@@ -249,13 +258,13 @@ test('Handoff: Claude writes the doc, the context is cleared, then Claude reads 
   expect(seen.runs).toEqual(['/clear '])
   expect(seen.prompts[1]).toContain(`just cleared for a handoff. Read the handoff doc at ${DOC}`)
   // The new session's state was empty; the chain refilled it.
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('handoff 3/3')
+  expect(await ui.find({ type: 'Text', text: /handoff 3\/3/ })).toBeDefined()
 
   // The read-back turn ends the handoff.
   seen.percent = 10
   await turnEnds($)
   await settle()
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff')
+  expect(await ui.find({ type: 'Text', text: /handoff \d\/3/ })).toBeUndefined()
 
   // Back past the mark minutes after the clear: a toast about the baseline, no new handoff.
   seen.percent = 60
@@ -432,6 +441,7 @@ test('a refused command shows a toast instead of failing silently', async ($, on
   seen.isBusy = true
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'toggle' })
   await ui.press({ key: 'effort-high' })
   expect(seen.toasts.some(t => t.startsWith('/effort did not run'))).toBe(true)
   await ui.unmount()
