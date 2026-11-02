@@ -233,6 +233,86 @@ export function stripSvg(c: Strip): string {
   )
 }
 
+// ── the breakdown ─────────────────────────────────────────────────────────────
+
+export type Segment = { name: string; tokens: number; color: string; kind: 'used' | 'free' | 'buffer' }
+
+// The /context rows as Details shows them: the largest used ones, then the
+// small ones (under 1% of the window) summed as Other, then the buffer and
+// the free space. Rows of 0% say nothing, so none are left.
+export function segments(categories: readonly Segment[], window: number, most = 5): Segment[] {
+  const used = categories.filter(c => c.kind === 'used').sort((a, z) => z.tokens - a.tokens)
+  const shown = used.filter((c, i) => i < most && c.tokens >= window * 0.01)
+  const small = used.filter(c => !shown.includes(c)).reduce((n, c) => n + c.tokens, 0)
+  return [
+    ...shown,
+    ...(small > 0 ? [{ name: 'Other', tokens: small, color: 'inactive', kind: 'used' as const }] : []),
+    ...categories.filter(c => c.kind === 'buffer'),
+    ...categories.filter(c => c.kind === 'free'),
+  ]
+}
+
+// The used segments' colors, by rank: the engine's colors are theme keys,
+// which an image cannot read. Other is always gray.
+const SEGMENT_COLORS = ['#7f77dd', '#1d9e75', '#d85a30', '#378add', '#ba7517'] as const
+const OTHER_COLOR = '#888780'
+
+const LEGEND = { w: 880, cols: 4, row: 22, barH: 8, gap: 12 } as const
+
+// One stacked bar of the whole window (used segments, the buffer hatched at
+// the end, free space as the bare track) and a legend under it, four to a row.
+export function breakdownSvg(parts: readonly Segment[], window: number): string {
+  const { w: W, cols, row, barH, gap } = LEGEND
+  const colW = W / cols
+  const used = parts.filter(p => p.kind === 'used')
+  const colorOf = (p: Segment) =>
+    p.name === 'Other' ? OTHER_COLOR : SEGMENT_COLORS[used.indexOf(p) % SEGMENT_COLORS.length]!
+  const width = (t: number) => (W * Math.min(t, window)) / window
+  let x = 0
+  const fills = used.map(p => {
+    const r = `<rect x="${x.toFixed(1)}" y="0" width="${width(p.tokens).toFixed(1)}" height="${barH}" fill="${colorOf(p)}"/>`
+    x += width(p.tokens)
+    return r
+  })
+  let end = W
+  const hatched = parts
+    .filter(p => p.kind === 'buffer')
+    .map(p => {
+      end -= width(p.tokens)
+      return `<rect x="${end.toFixed(1)}" y="0" width="${width(p.tokens).toFixed(1)}" height="${barH}" fill="url(#hatch)"/>`
+    })
+  const items = parts.map((p, i) => {
+    const lx = (i % cols) * colW
+    const ly = barH + gap + Math.floor(i / cols) * row + 14
+    const swatch =
+      p.kind === 'used'
+        ? `<rect x="${lx}" y="${ly - 10}" width="9" height="9" rx="2" fill="${colorOf(p)}"/>`
+        : p.kind === 'buffer'
+          ? `<rect x="${lx}" y="${ly - 10}" width="9" height="9" rx="2" fill="url(#hatch)"/>`
+          : `<rect x="${lx + 0.5}" y="${ly - 9.5}" width="8" height="8" rx="2" fill="none" class="edge"/>`
+    const figure = compact(p.tokens)
+    const name = fit(p.name, colW - 28 - figure.length * 8, 14)
+    return (
+      swatch +
+      `<text x="${lx + 16}" y="${ly}" font-size="14" class="${p.kind === 'used' ? 't' : 'm'}">${esc(name)}` +
+      `<tspan class="m"> ${esc(figure)}</tspan></text>`
+    )
+  })
+  const H = barH + gap + Math.ceil(parts.length / cols) * row
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.edge{stroke:#59636e}.hatch{fill:#8c959f}` +
+    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.edge{stroke:#9198a1}.hatch{fill:#6e7681}}` +
+    `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
+    `<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">` +
+    `<rect width="2" height="4" class="hatch"/></pattern>` +
+    `<clipPath id="bar"><rect x="0" y="0" width="${W}" height="${barH}" rx="4"/></clipPath></defs>` +
+    `<g clip-path="url(#bar)"><rect x="0" y="0" width="${W}" height="${barH}" class="track"/>${fills.join('')}${hatched.join('')}</g>` +
+    items.join('') +
+    `</svg>`
+  )
+}
+
 // Cuts a line to fit its column, by an average glyph width for the font size
 // (a UI sans at mixed case and digits runs near half the size per glyph).
 export function fit(text: string, widthPx: number, fontSize: number): string {

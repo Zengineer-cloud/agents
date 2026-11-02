@@ -24,6 +24,8 @@ import {
   sparkline,
   stageOf,
   stripSvg,
+  segments,
+  breakdownSvg,
   turnsLeft,
   warning,
   zoneName,
@@ -80,6 +82,32 @@ test('the strip is one thin SVG line: figures, bars and short resets', () => {
   expect(svg.length).toBeLessThan(131072)
   // No limits: no hairline either.
   expect(stripSvg({ ...strip, limits: [] })).not.toContain('class="rule"')
+})
+
+test('the breakdown sums parts under 1% as Other and draws one stacked bar with a legend', () => {
+  const cats = [
+    { name: 'System tools', tokens: 36_000, color: 'inactive', kind: 'used' as const },
+    { name: 'Messages', tokens: 94_000, color: 'permission', kind: 'used' as const },
+    { name: 'Memory files', tokens: 2_000, color: 'claude', kind: 'used' as const },
+    { name: 'Custom agents', tokens: 245, color: 'suggestion', kind: 'used' as const },
+    { name: 'Free space', tokens: 774_000, color: 'inactive', kind: 'free' as const },
+    { name: 'Autocompact buffer', tokens: 33_000, color: 'inactive', kind: 'buffer' as const },
+  ]
+  const parts = segments(cats, 1_000_000)
+  expect(parts.map(p => `${p.name} ${p.tokens}`)).toEqual([
+    'Messages 94000',
+    'System tools 36000',
+    'Other 2245',
+    'Autocompact buffer 33000',
+    'Free space 774000',
+  ])
+  const svg = breakdownSvg(parts, 1_000_000)
+  expect(svg.startsWith('<svg')).toBe(true)
+  expect(svg).toContain('Messages<tspan class="m"> 94k</tspan>')
+  expect(svg).toContain('fill="url(#hatch)"')
+  // Five parts, four to a row: two legend rows.
+  expect(svg).toContain('height="64"')
+  expect(svg).not.toContain('Custom agents')
 })
 
 test('fit cuts a line to its column by glyph width', () => {

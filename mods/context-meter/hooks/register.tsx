@@ -10,6 +10,7 @@ import {
   aliasOf,
   averageGrowth,
   baseline,
+  breakdownSvg,
   compact,
   compactInstructions,
   contextLevel,
@@ -25,8 +26,8 @@ import {
   marks,
   parseAlias,
   readPrompt,
+  segments,
   signed,
-  sparkline,
   stageOf,
   stripSvg,
   turnsLeft,
@@ -499,129 +500,137 @@ export const register: Register = on => {
     }
 
     const options = s?.options ?? []
-    const at = effort ? EFFORTS.indexOf(effort as (typeof EFFORTS)[number]) : -1
     const label = (text: string) => (
-      <Box width={8}>
+      <Box width={10}>
         <Text dimColor>{text}</Text>
       </Box>
     )
-    // The session's settings, inside Details: a radio group for the model and a
-    // stepped slider for effort. Plain Buttons draw as bare text, so the glyphs
-    // carry the state.
+    // One fact per line: its label, the figure that matters, then dim context.
+    const fact = (name: string, lead: string, rest = '', truncate = false) => (
+      <Box key={`fact-${name}`} flexDirection="row">
+        {label(name)}
+        <Text {...(truncate ? { wrap: 'truncate' as const } : {})}>
+          {lead}
+          <Text dimColor>{rest}</Text>
+        </Text>
+      </Box>
+    )
+    const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
+    // The session's settings on one row, as words: the current pick is a
+    // framed button, the rest bare and dim.
+    const pick = (key: string, text: string, isOn: boolean, onPress: () => unknown) => (
+      <Button key={key} {...(isOn ? {} : { plain: true as const, dimColor: true })} label={text} onPress={onPress} />
+    )
     const controls = (
-      <Box flexDirection="column">
-        <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="center">
-          {options.length ? label('Model') : null}
-          {families(options).map(f => (
-            <Button
-              key={`model-${f}`}
-              plain
-              dimColor={current?.family !== f}
-              label={`${current?.family === f ? '◉' : '○'} ${f.charAt(0).toUpperCase() + f.slice(1)}`}
+      <Box flexDirection="row" gap={3} flexWrap="wrap" alignItems="center">
+        {options.length ? (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {label('Model')}
+            {families(options).map(f =>
               // The 1M variant wherever a family has one; Haiku has none and stays 200k.
-              onPress={() => runCommand($, 'model', aliasFor(f, true, options))}
-            />
-          ))}
-        </Box>
-        <Box flexDirection="row" alignItems="center" flexWrap="wrap">
+              pick(`model-${f}`, cap(f), current?.family === f, () =>
+                runCommand($, 'model', aliasFor(f, true, options)),
+              ),
+            )}
+          </Box>
+        ) : null}
+        <Box flexDirection="row" gap={1} alignItems="center">
           {label('Effort')}
-          <Text dimColor>low </Text>
-          {EFFORTS.map((choice, i) => (
-            <Box key={`stop-${choice}`} flexDirection="row">
-              {i > 0 ? <Text dimColor={i > at}>──</Text> : null}
-              <Button
-                key={`effort-${choice}`}
-                plain
-                dimColor={i > at}
-                label={i === at ? '◉' : i < at ? '●' : '○'}
-                onPress={() => runCommand($, 'effort', choice)}
-              />
-            </Box>
-          ))}
-          <Text dimColor> max</Text>
-          <Text bold>{effort ? `  ${effort}` : ''}</Text>
+          {EFFORTS.map(choice => pick(`effort-${choice}`, choice, effort === choice, () => runCommand($, 'effort', choice)))}
         </Box>
       </Box>
     )
 
-    const used =(d?.categories ?? []).filter(c => c.kind === 'used').sort((a, z) => z.tokens - a.tokens)
-    const rest = (d?.categories ?? []).filter(c => c.kind !== 'used')
+    const parts = d ? segments(d.categories, m.window) : []
+    // An image where the surface draws one; in the terminal, a row per part.
+    const breakdown =
+      d === null ? (
+        <Text dimColor>Counting…</Text>
+      ) : Svg ? (
+        <Svg
+          key="breakdown"
+          alt={parts.map(p => `${p.name} ${compact(p.tokens)}`).join(', ')}
+          source={breakdownSvg(parts, m.window)}
+        />
+      ) : (
+        <Box flexDirection="column">
+          {parts.map(p => (
+            <Box key={`cat-${p.name}`} flexDirection="row" gap={1}>
+              <Box width={22}>
+                <Text dimColor={p.kind !== 'used'} wrap="truncate">
+                  {p.name}
+                </Text>
+              </Box>
+              <Box width={6} justifyContent="flex-end">
+                <Text>{compact(p.tokens)}</Text>
+              </Box>
+              <Text color={p.kind === 'used' ? p.color : undefined} dimColor={p.kind !== 'used'}>
+                {p.kind === 'free' ? '' : gauge(p.tokens, m.window, wide ? 20 : 10).filled}
+              </Text>
+              <Text dimColor>{Math.round((p.tokens / m.window) * 100)}%</Text>
+            </Box>
+          ))}
+        </Box>
+      )
 
     const fixed = d ? baseline(d.categories) : 0
+    const limitText = m.limits.map(l => {
+      const r = limitRow(l, now)
+      return { lead: `${r.name} ${Math.round(r.percent)}%`, rest: r.reset ? ` ${r.reset === 'just now' ? 'reset just now' : `resets ${r.reset}`}` : '' }
+    })
+    const memory = d?.memoryFiles ?? []
     return (
       <Box flexDirection="column">
         {below}
         {headline}
-        {controls}
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {d === null ? <Text dimColor>Counting…</Text> : null}
-          {[...used, ...rest].map(c => {
-            const g = gauge(c.tokens, m.window, wide ? 20 : 10)
-            return (
-              <Box key={`cat-${c.name}`} flexDirection="row" gap={1}>
-                <Box width={22}>
-                  <Text dimColor={c.kind !== 'used'} wrap="truncate">
-                    {c.name}
-                  </Text>
-                </Box>
-                <Box width={6} justifyContent="flex-end">
-                  <Text>{compact(c.tokens)}</Text>
-                </Box>
-                <Text color={c.kind === 'used' ? c.color : undefined} dimColor={c.kind !== 'used'}>
-                  {c.kind === 'free' ? '' : g.filled}
-                </Text>
-                <Text dimColor>{Math.round((c.tokens / m.window) * 100)}%</Text>
-              </Box>
-            )
-          })}
-
-          <Box flexDirection="row" marginTop={1}>
-            {label('Zone')}
-            <Text dimColor>{`${zone}: ${zoneHint(zone, mk)}`}</Text>
+        <Box flexDirection="column" marginTop={1} gap={1}>
+          {controls}
+          {breakdown}
+          <Box flexDirection="column">
+            {fact(
+              'Zone',
+              cap(zone),
+              ` · ${zoneHint(zone, mk)}`,
+            )}
+            {fact(
+              'Growth',
+              growth !== undefined ? `avg ${signed(Math.round(growth))}/turn` : 'one turn so far',
+              ` · handoff at ${compact(mk.dumb)}${autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}`,
+            )}
+            {limitText.length
+              ? fact(
+                  'Limits',
+                  limitText[0]!.lead,
+                  `${limitText[0]!.rest}${limitText
+                    .slice(1)
+                    .map(l => ` · ${l.lead}${l.rest}`)
+                    .join('')}`,
+                )
+              : null}
+            {fact(
+              'Cost',
+              m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'n/a',
+              d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}%` : '',
+            )}
+            {fixed > 0
+              ? fact(
+                  'Baseline',
+                  compact(fixed),
+                  ` on every turn${d && d.mcpTokens > 0 ? `, MCP tools ${compact(d.mcpTokens)} of it` : ''}`,
+                )
+              : null}
+            {memory.length
+              ? fact(
+                  'Memory',
+                  memory
+                    .slice(0, 3)
+                    .map(f => `${fileName(f.path)} ${compact(f.tokens)}`)
+                    .join(' · '),
+                  memory.length > 3 ? ` · +${memory.length - 3} more` : '',
+                  true,
+                )
+              : null}
           </Box>
-          <Box flexDirection="row">
-            {label('Growth')}
-            <Text dimColor>
-              {m.history.length >= 2 ? `${sparkline(m.history.slice(-12))} ` : 'one turn so far'}
-              {growth !== undefined ? ` avg ${signed(Math.round(growth))}/turn` : ''}
-              {` · handoff at ${compact(mk.dumb)}`}
-              {autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}
-            </Text>
-          </Box>
-          {m.limits.length ? (
-            <Box flexDirection="row">
-              {label('Limits')}
-              <Text dimColor>
-                {m.limits
-                  .map(l => {
-                    const r = limitRow(l, now)
-                    const when = r.reset === 'just now' ? ' (reset just now)' : r.reset ? ` (resets ${r.reset})` : ''
-                    return `${r.name} ${Math.round(r.percent)}%${when}`
-                  })
-                  .join(' · ')}
-              </Text>
-            </Box>
-          ) : null}
-          <Box flexDirection="row">
-            {label('Session')}
-            <Text dimColor>
-              {m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'cost n/a'}
-              {d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}% on the last request` : ''}
-              {d && d.mcpTokens > 0 ? ` · MCP tools ${compact(d.mcpTokens)}` : ''}
-              {fixed > 0 ? ` · baseline ${compact(fixed)} on every turn (prompt, tools, memory)` : ''}
-            </Text>
-          </Box>
-          {d && d.memoryFiles.length ? (
-            <Box flexDirection="row">
-              {label('Memory')}
-              <Text dimColor wrap="truncate">
-                {d.memoryFiles
-                  .slice(0, 4)
-                  .map(f => `${fileName(f.path)} ${compact(f.tokens)}`)
-                  .join(' · ')}
-              </Text>
-            </Box>
-          ) : null}
         </Box>
       </Box>
     )

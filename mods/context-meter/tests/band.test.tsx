@@ -174,7 +174,7 @@ test('desktop draws a thin strip and one zone line, the terminal a text row with
   expect(await desk.find({ key: 'handoff' })).toBeDefined()
   await desk.press({ key: 'toggle' })
   expect(await desk.find({ key: 'model-opus' })).toBeDefined()
-  expect(await desk.find({ type: 'Text', text: /dumb zone: past 100k: handoff, then a fresh context/ })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^Dumb zone · past 100k: handoff, then a fresh context$/ })).toBeDefined()
   await desk.press({ key: 'toggle' })
   await desk.unmount()
 
@@ -217,8 +217,13 @@ test('model buttons pick the 1M variant wherever a family has one', async ($, on
     runs.length = 0
     const ui = await $.ui.mount({ ...BAND, surface, props: props() })
     await ui.press({ key: 'toggle' })
-    expect((await ui.find({ key: 'model-opus' }))?.props.label).toBe('◉ Opus')
-    expect((await ui.find({ key: 'model-sonnet' }))?.props.label).toBe('○ Sonnet')
+    // Words, not radio glyphs: the current pick is a framed button, the rest bare.
+    const opus = await ui.find({ key: 'model-opus' })
+    const sonnet = await ui.find({ key: 'model-sonnet' })
+    expect(opus?.props.label).toBe('Opus')
+    expect(opus?.props.plain).toBeUndefined()
+    expect(sonnet?.props.label).toBe('Sonnet')
+    expect(sonnet?.props.plain).toBe(true)
     expect(await ui.find({ key: 'model-1m' })).toBeUndefined()
     expect(await ui.find({ key: 'model-default' })).toBeUndefined()
     expect(await ui.find({ key: 'model-opusplan' })).toBeUndefined()
@@ -483,7 +488,8 @@ test('a session that loaded a smaller window says so, and Details shows the fixe
   expect(await desk.find({ type: 'Text', text: /loaded a 100k window from an old setting.*a new chat gets the full 200k/ })).toBeDefined()
   await desk.press({ key: 'toggle' })
   // System tools 20k; Messages are not baseline.
-  expect(await desk.find({ type: 'Text', text: /baseline 20k on every turn/ })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^Baseline$/ })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^20k on every turn$/ })).toBeDefined()
   await desk.unmount()
   const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
   expect(await term.find({ type: 'Text', text: /loaded a 100k window/ })).toBeDefined()
@@ -495,16 +501,25 @@ test('the toggle opens the breakdown, limits, cost and memory files, and closes 
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface, props: props() })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
+    // The breakdown: an image on the desktop, a row per part in the terminal.
+    const parts = async () =>
+      surface === 'desktop'
+        ? (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join(' ')
+        : [
+            (await ui.find({ type: 'Text', text: /^Messages$/ })) ? 'Messages' : '',
+            (await ui.find({ type: 'Text', text: /^Autocompact buffer$/ })) ? 'Autocompact buffer' : '',
+          ].join(' ')
+    expect(await parts()).not.toContain('Messages')
     await ui.press({ key: 'toggle' })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Autocompact buffer$/ })).toBeDefined()
+    expect(await parts()).toContain('Messages')
+    expect(await parts()).toContain('Autocompact buffer')
+    expect(await parts()).not.toContain('deferred')
     expect(await ui.find({ type: 'Text', text: /deferred/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /\$1\.84 · cache hit 90%/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\$1\.84 · cache hit 90%$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\.claude\/CLAUDE\.md 1k/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact held until 175k/ })).toBeDefined()
     await ui.press({ key: 'toggle' })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
+    expect(await parts()).not.toContain('Messages')
     await ui.unmount()
   }
 })
