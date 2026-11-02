@@ -162,17 +162,19 @@ test('desktop draws a thin strip and one zone line, the terminal a text row with
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
   const card = await desk.find({ type: 'Svg' })
   expect(card?.props.alt).toBe('Context 60% full, 120k of 200k tokens')
-  expect(card?.props.isInteractive).toBe(true)
-  // 120k: past the 100k dumb-zone mark. The zone is a text line; its meaning a hover title.
+  // An image, not a frame: a frame takes a default height far taller than the strip.
+  expect(card?.props.isInteractive).toBeUndefined()
+  // 120k: past the 100k dumb-zone mark. The zone is a text line; its meaning waits in Details.
   expect(await desk.find({ type: 'Text', text: /Dumb zone/ })).toBeDefined()
-  expect(String(card?.props.source)).toContain('past 100k: handoff, then a fresh context')
   expect(String(card?.props.source)).not.toContain('Opus')
   // The model and effort wait in Details; Handoff stays on the band.
   expect(await desk.find({ key: 'model-opus' })).toBeUndefined()
   expect(await desk.find({ key: 'effort-high' })).toBeUndefined()
+  expect(await desk.find({ type: 'Text', text: /past 100k: handoff, then a fresh context/ })).toBeUndefined()
   expect(await desk.find({ key: 'handoff' })).toBeDefined()
   await desk.press({ key: 'toggle' })
   expect(await desk.find({ key: 'model-opus' })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /dumb zone: past 100k: handoff, then a fresh context/ })).toBeDefined()
   await desk.press({ key: 'toggle' })
   await desk.unmount()
 

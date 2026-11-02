@@ -172,59 +172,46 @@ export type Strip = {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 // The strip's grid, in viewBox units: one line, the context on the left and a
-// block per rate limit on the right. Drawn at this size, scaled down when the
-// slot is narrower, so only the proportions matter.
+// block per rate limit on the right. Drawn as an image at this size (its text
+// then matches the band's), scaled down when the slot is narrower.
 const STRIP = {
-  w: 760,
-  h: 24,
-  // Text baseline and the bars' centre line.
-  y: 16,
-  bar: { x: 92, w: 236, h: 4 },
-  percentX: 340,
+  w: 880,
+  h: 26,
+  // Text baseline; the bars sit on the text's middle.
+  y: 18,
+  bar: { x: 104, w: 260, h: 4 },
+  percentX: 376,
   // The hairline between the context and the limits.
-  ruleX: 392,
-  limits: { x: 408, step: 176, bar: 54 },
+  ruleX: 436,
+  limits: { x: 456, step: 212, bar: 64 },
 } as const
-
-// Hover text for the context bar: the zone and what it means.
-const zoneTitle = (tokens: number, m: Marks) => {
-  const zone = zoneName(tokens, m)
-  return `${zone.charAt(0).toUpperCase()}${zone.slice(1)}: ${zoneHint(zone, m)}`
-}
 
 // A reset as the strip shows it: "4h 58m", "Tue", "reset".
 const shortReset = (reset: string | undefined) =>
   reset === undefined ? '' : reset === 'just now' ? 'reset' : reset.replace(/^in /, '')
 
 // One line of thin bars: the token figures, the context bar with ticks at the
-// quality marks, the percent, then each rate limit with its reset. The longer
-// words (the zone's meaning, the full reset) are hover titles, so the strip
-// stays one quiet line. Colors follow light or dark.
+// quality marks, the percent, then each rate limit with its reset. The zone's
+// meaning and the full reset times live in Details. Colors follow light or dark.
 export function stripSvg(c: Strip): string {
   const { w: W, h: H, y, bar, limits } = STRIP
   const m = c.marks ?? marks(c.window)
   const color = COLORS[contextLevel(c.tokens, m)]
   const fill = Math.min(c.percent, 100) / 100
-  const top = y - bar.h / 2 - 3
+  const barY = y - 7
   const ticks = [m.fading, m.dumb].map(t => {
     const x = bar.x + (bar.w * Math.min(t, c.window)) / c.window
-    return `<line x1="${x.toFixed(1)}" y1="${y - 6}" x2="${x.toFixed(1)}" y2="${y + 4}" stroke-width="1" class="tick"/>`
+    return `<line x1="${x.toFixed(1)}" y1="${barY - 3}" x2="${x.toFixed(1)}" y2="${barY + bar.h + 3}" stroke-width="1" class="tick"/>`
   })
-  const figure = compact(c.tokens)
   const blocks = c.limits.slice(0, 2).map((l, i) => {
     const x = limits.x + i * limits.step
     const lc = COLORS[level(l.percent)]
-    const pct = `${Math.round(l.percent)}%`
-    const full = l.reset ? ` · ${l.reset === 'just now' ? 'reset' : 'resets'} ${l.reset}` : ''
     return (
-      `<g><title>${esc(`${l.name} limit ${pct}${full}`)}</title>` +
-      `<rect x="${x}" y="0" width="${limits.step - 8}" height="${H}" fill="transparent"/>` +
-      `<text x="${x}" y="${y}" font-size="12" class="m">${esc(l.name)}</text>` +
-      `<rect x="${x + 22}" y="${y - 6}" width="${limits.bar}" height="${bar.h}" rx="2" class="track"/>` +
-      `<rect x="${x + 22}" y="${y - 6}" width="${Math.max(2, (limits.bar * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="${bar.h}" rx="2" fill="${lc}"/>` +
-      `<text x="${x + 84}" y="${y}" font-size="12" font-weight="600" class="t">${esc(pct)}</text>` +
-      `<text x="${x + 116}" y="${y}" font-size="12" class="m">${esc(fit(shortReset(l.reset), limits.step - 124, 12))}</text>` +
-      `</g>`
+      `<text x="${x}" y="${y}" font-size="14" class="m">${esc(l.name)}</text>` +
+      `<rect x="${x + 26}" y="${barY}" width="${limits.bar}" height="${bar.h}" rx="2" class="track"/>` +
+      `<rect x="${x + 26}" y="${barY}" width="${Math.max(2, (limits.bar * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="${bar.h}" rx="2" fill="${lc}"/>` +
+      `<text x="${x + 100}" y="${y}" font-size="14" font-weight="600" class="t">${Math.round(l.percent)}%</text>` +
+      `<text x="${x + 144}" y="${y}" font-size="14" class="m">${esc(fit(shortReset(l.reset), limits.step - 150, 14))}</text>`
     )
   })
   return (
@@ -232,18 +219,14 @@ export function stripSvg(c: Strip): string {
     `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.tick{stroke:#59636e}.rule{stroke:#d1d9e0}` +
     `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.tick{stroke:#9198a1}.rule{stroke:#3d444d}}` +
     `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
-    // The context: figures, bar with the marks, percent. One hover title for all.
-    `<g><title>${esc(zoneTitle(c.tokens, m))}</title>` +
-    `<rect x="0" y="0" width="${STRIP.ruleX - 8}" height="${H}" fill="transparent"/>` +
-    `<text x="0" y="${y}" font-size="14" font-weight="600" class="t">${esc(figure)}` +
-    `<tspan class="m" font-size="12" font-weight="400"> / ${esc(compact(c.window))}</tspan></text>` +
-    `<rect x="${bar.x}" y="${top + 3}" width="${bar.w}" height="${bar.h}" rx="2" class="track"/>` +
-    `<rect x="${bar.x}" y="${top + 3}" width="${c.tokens > 0 ? Math.max(2, bar.w * fill).toFixed(1) : 0}" height="${bar.h}" rx="2" fill="${color}"/>` +
+    `<text x="0" y="${y}" font-size="16" font-weight="600" class="t">${esc(compact(c.tokens))}` +
+    `<tspan class="m" font-size="14" font-weight="400"> / ${esc(compact(c.window))}</tspan></text>` +
+    `<rect x="${bar.x}" y="${barY}" width="${bar.w}" height="${bar.h}" rx="2" class="track"/>` +
+    `<rect x="${bar.x}" y="${barY}" width="${c.tokens > 0 ? Math.max(2, bar.w * fill).toFixed(1) : 0}" height="${bar.h}" rx="2" fill="${color}"/>` +
     ticks.join('') +
-    `<text x="${STRIP.percentX}" y="${y}" font-size="12" font-weight="600" fill="${color}">${c.percent}%</text>` +
-    `</g>` +
+    `<text x="${STRIP.percentX}" y="${y}" font-size="14" font-weight="600" fill="${color}">${c.percent}%</text>` +
     (blocks.length
-      ? `<line x1="${STRIP.ruleX}" y1="5" x2="${STRIP.ruleX}" y2="${H - 5}" stroke-width="1" class="rule"/>`
+      ? `<line x1="${STRIP.ruleX}" y1="6" x2="${STRIP.ruleX}" y2="${H - 4}" stroke-width="1" class="rule"/>`
       : '') +
     blocks.join('') +
     `</svg>`

@@ -56,7 +56,7 @@ describe('model and effort', () => {
   })
 })
 
-test('the strip is one thin SVG line: figures, bars, and the long words as hover titles', () => {
+test('the strip is one thin SVG line: figures, bars and short resets', () => {
   const strip = {
     percent: 52,
     tokens: 104_000,
@@ -68,16 +68,14 @@ test('the strip is one thin SVG line: figures, bars, and the long words as hover
   }
   const svg = stripSvg(strip)
   expect(svg.startsWith('<svg')).toBe(true)
-  expect(svg).toContain('height="24"')
+  expect(svg).toContain('height="26"')
   expect(svg).toContain('>52%<')
   expect(svg).toContain('104k')
-  // The short reset in the line, the full one on hover.
+  // Short resets in the line; the full sentences live in Details.
   expect(svg).toContain('>2h 10m<')
-  expect(svg).toContain('<title>5h limit 31% · resets in 2h 10m</title>')
   expect(svg).toContain('>reset<')
   expect(svg).toContain('7d&lt;')
-  // The zone and its meaning are the context bar's hover title.
-  expect(svg).toContain('<title>Dumb zone: past 100k: handoff, then a fresh context</title>')
+  expect(svg).not.toContain('<title>')
   expect(svg).not.toContain('<circle')
   expect(svg.length).toBeLessThan(131072)
   // No limits: no hairline either.

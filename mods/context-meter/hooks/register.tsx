@@ -32,6 +32,7 @@ import {
   turnsLeft,
   warning,
   windowNote,
+  zoneHint,
   zoneName,
 } from './rules'
 
@@ -448,7 +449,6 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Svg
           key="card"
-          isInteractive
           alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
           source={stripSvg({
             percent: m.percent,
@@ -459,10 +459,10 @@ export const register: Register = on => {
           })}
         />
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="row" gap={1} flexShrink={1} flexWrap="wrap">
+          <Text>
             <Text color={color}>{`● ${zone.charAt(0).toUpperCase()}${zone.slice(1)}`}</Text>
-            {trend ? <Text dimColor>{`· ${trend}`}</Text> : null}
-          </Box>
+            <Text dimColor>{trend ? ` · ${trend}` : ''}</Text>
+          </Text>
           <Box flexDirection="row" gap={2} alignItems="center">
             {handoffButton}
             {toggle}
@@ -576,6 +576,10 @@ export const register: Register = on => {
           })}
 
           <Box flexDirection="row" marginTop={1}>
+            {label('Zone')}
+            <Text dimColor>{`${zone}: ${zoneHint(zone, mk)}`}</Text>
+          </Box>
+          <Box flexDirection="row">
             {label('Growth')}
             <Text dimColor>
               {m.history.length >= 2 ? `${sparkline(m.history.slice(-12))} ` : 'one turn so far'}
