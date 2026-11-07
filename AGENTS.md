@@ -29,7 +29,9 @@ skills follow the same ≤90-line limit.
 `node --test "tests/*.test.mjs"` exercises `checks.mjs`, enforces the rules above (size limits,
 hook paths, rule syntax), and runs `claude plugin validate` and `claude plugin test`
 on each mod in `mods/`. Run it before committing. CI runs it on every pull request,
-without the claude CLI, so the plugin cases skip there.
+without the claude CLI, so the plugin cases skip there. The factory's behavior
+evals (`factory/evals/`) have their own workflow, which calls the model. It is
+off until someone turns it on (see `factory/README.md`).
 
 ## Smoke test
 

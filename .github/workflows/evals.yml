@@ -1,0 +1,70 @@
+name: plugin evals
+
+# Behavior evals for the factory plugin. They call the model and cost money.
+# Off for now: the workflow runs only when started by hand (Actions tab, or
+# `gh workflow run evals.yml`). To turn it on, add the ANTHROPIC_API_KEY
+# repository secret and uncomment the pull_request and schedule triggers.
+# Without the secret the job is skipped either way.
+on:
+  workflow_dispatch:
+  # pull_request:
+  #   paths:
+  #     - "factory/**"
+  #     - "!factory/README.md"
+  #     - "!factory/docs/**"
+  #     - ".github/workflows/evals.yml"
+  # schedule:
+  #   - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Set the ANTHROPIC_API_KEY repository secret to run the plugin evals."
+          fi
+
+  factory:
+    needs: key
+    if: needs.key.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # Pinned so a CLI release cannot change results on its own. Bump on purpose.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.290
+      # --ablation none skips the no-plugin baseline to halve the cost.
+      # A case passes when at least two of its three runs pass.
+      # Exit 2 means the cost cap stopped the run early.
+      - name: Run factory evals
+        working-directory: factory
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: >
+          claude plugin eval . --trust-plugin --scaffold --ablation none
+          --runs 3 --threshold 0.66 -j 4 --max-cost-usd 10
+          --output-dir eval-results --json eval-results/results.json --no-publish
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: factory-eval-results
+          path: factory/eval-results/
+          if-no-files-found: ignore
