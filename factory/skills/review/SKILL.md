@@ -48,6 +48,8 @@ noise from findings that do not hold up.
 
 ## Rules
 
+- With `run: unattended` in status.md, follow "Run unattended" in the factory
+  skill: never ask, park instead, and accept the review only as it allows.
 - The review agents are read-only. Only this session edits code.
 - A finding that contradicts the spec is a spec question, not a code fix.
   Ask the user.

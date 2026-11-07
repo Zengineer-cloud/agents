@@ -106,13 +106,14 @@ May to October 2026). Local build at the time: v2.1.290.
 | Workflows (`workflows/*.js`, v2.1.154) | `factory-review`: lenses, then skeptics | 16 concurrent agents; scripts cannot touch files; plugin workflows called by name |
 | `/code-review`, `/security-review` | review at low risk, or without workflows | levels low to max, `--fix`, `--comment`; `ultra` runs in the cloud |
 | Plugin evals (`claude plugin eval`, v2.1.269) | `evals/` cases for the stage skills | runs WITH and WITHOUT the plugin; `--runs`, `--max-cost-usd` |
+| `/goal <condition>` | unattended build and review | a small fast model checks the condition after each turn from the conversation only, so the run prints `FACTORY RUN DONE` or `PARKED`; no turn cap, so the condition says "stop after 80 turns"; works in `claude -p` |
+| `--permission-mode auto --permission-prompts none --max-budget-usd` | headless unattended run | ask rules still prompt in auto mode; with prompts set to none they are denied and Claude keeps working; `--bare` would skip plugins and hooks |
 | `REVIEW.md` | review | read only by the managed Code Review service, from the base branch; local `/code-review` ignores it, so the factory review applies it itself |
 
 ### What to add later
 
 | Feature | Stage | Idea |
 | :- | :- | :- |
-| `/goal <condition>` | build | `/goal every task in specs/<slug>/tasks.md checked and the verifier says PASS` for a long unattended build |
 | `claude --bg`, agent view (research preview) | build, test | run a build or a long test suite as a background session |
 | `claude -p` with `--json-schema`, `--max-budget-usd`, `--permission-mode dontAsk` | any | run a stage from CI or a script, with a hard cost cap |
 | `anthropics/claude-code-action@v1` | review | run the review on every PR push, `--comment` findings |
@@ -131,4 +132,4 @@ May to October 2026). Local build at the time: v2.1.290.
 
 ### Sources
 
-[AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook), [Code Review customize](https://code.claude.com/docs/en/code-review-customize), [plugins](https://code.claude.com/docs/en/plugins), [plugin evals](https://code.claude.com/docs/en/plugin-evals), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents), [hooks](https://code.claude.com/docs/en/hooks), [workflows](https://code.claude.com/docs/en/workflows), [worktrees](https://code.claude.com/docs/en/worktrees), [headless](https://code.claude.com/docs/en/headless), [GitHub Actions](https://code.claude.com/docs/en/github-actions), [code review](https://code.claude.com/docs/en/code-review), [permission modes](https://code.claude.com/docs/en/permission-modes), [goal](https://code.claude.com/docs/en/goal), [routines](https://code.claude.com/docs/en/scheduled-tasks), [CHANGELOG](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md)
+[AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook), [loops](https://claude.com/blog/getting-started-with-loops), [Code Review customize](https://code.claude.com/docs/en/code-review-customize), [auto mode config](https://code.claude.com/docs/en/auto-mode-config), [CLI reference](https://code.claude.com/docs/en/cli-reference), [plugins](https://code.claude.com/docs/en/plugins), [plugin evals](https://code.claude.com/docs/en/plugin-evals), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents), [hooks](https://code.claude.com/docs/en/hooks), [workflows](https://code.claude.com/docs/en/workflows), [worktrees](https://code.claude.com/docs/en/worktrees), [headless](https://code.claude.com/docs/en/headless), [GitHub Actions](https://code.claude.com/docs/en/github-actions), [code review](https://code.claude.com/docs/en/code-review), [permission modes](https://code.claude.com/docs/en/permission-modes), [goal](https://code.claude.com/docs/en/goal), [routines](https://code.claude.com/docs/en/scheduled-tasks), [CHANGELOG](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md)

@@ -37,7 +37,7 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | `test-author` | agent | writes the failing acceptance tests from the ACs only |
 | `verifier` | agent | read-only: runs the checks, maps each AC to evidence, finds weakened tests |
 | `factory-review` | workflow | five read-only review lenses, then one skeptic per finding |
-| `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship |
+| `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship; denies it in an unattended run |
 | `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate |
 
 ## Design choices
@@ -60,6 +60,11 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
   gets `/code-review medium`; medium and high get the review workflow; high
   also gets `/security-review` and a list of files for a person to read.
   The target repo's `REVIEW.md` sets what every review reports and skips.
+- **Unattended runs are opt-in.** After spec approval, `/factory` can print a
+  `/goal` line (in session, auto mode) or a headless `claude -p` command with
+  a cost cap. Build and review then run without questions. Anything that
+  would need a person parks the run. It ends at a reviewed local branch, and
+  ship stays attended.
 
 ## Requirements in the target repo
 

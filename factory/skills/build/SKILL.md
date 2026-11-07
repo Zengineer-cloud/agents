@@ -55,4 +55,6 @@ independent agent has checked.
 - Do not touch `.claude/`, CI workflows, or files the plan does not list
   without asking.
 - Do not push in this stage. Pushing belongs to ship.
+- With `run: unattended` in status.md, follow "Run unattended" in the factory
+  skill: never ask, park instead, and go on to review after PASS.
 - Keep commits small and green: each one passes the checks.

@@ -43,7 +43,8 @@ right thing. Code waits until the user approves it.
    less, the task list, open questions, and the critic's verdict. Ask for a
    yes, or for changes.
 9. **On approval**: set `stage: approved` in status.md, log the date and the
-   user's approval, and offer `/factory:build`. On changes: edit and repeat
+   user's approval, and offer `/factory:build` or an unattended run of build
+   and review ("Run unattended" in `/factory`). On changes: edit and repeat
    from step 7.
 
 ## Sizing

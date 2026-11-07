@@ -30,6 +30,38 @@ any feature from those files alone.
    - **Feature**: run `/factory:spec` with the idea.
 3. With a slug: read its `status.md`, then run the skill for that stage.
    `spec` or `approved` goes to spec or build, `build` to build, and so on.
+4. When the user asks to run an approved spec unattended: see below.
+
+## Run unattended
+
+Build and review can run with nobody watching. Spec approval comes before the
+run and stays the user's. The run ends at a reviewed local branch; pushing,
+merging and production stay the user's through `/factory:ship`.
+
+1. Start only from stage `approved`, `build` or `review`. Set `run: unattended`
+   in status.md and log the date and the user's request.
+2. WARNING: the run spends tokens with nobody watching. Show both launch lines
+   and let the user pick. `/goal` checks only what you print, not the files,
+   so the run ends by printing a marker line.
+   - In this session, in auto mode: `/goal Run /factory <slug> unattended until
+     you print FACTORY RUN DONE or FACTORY RUN PARKED for <slug>, or stop after
+     80 turns`
+   - Headless: `claude -p "<the same /goal line>" --permission-mode auto
+     --permission-prompts none --max-budget-usd 20 --output-format stream-json
+     --verbose`. Do not add `--bare`: it skips plugins and hooks.
+3. While `run: unattended` is set, never ask the user. Where a stage says
+   "ask", park. Where it says "offer the next stage", run it.
+4. **Park** on: two failed attempts at one problem, a locked test that looks
+   wrong, a finding or gap that needs a spec change, a new dependency, an edit
+   outside the plan's files or to `.claude/` or CI, any denied permission.
+   To park: set `stage: parked` and `run: attended`, write the stage you
+   parked from and the open question under "Where to resume", log it, and
+   print `FACTORY RUN PARKED: <slug>: <reason>`.
+5. **Accept the review yourself** only when the verifier says PASS and no
+   confirmed blocker or major finding is left. Log minor findings unfixed. At
+   high risk, park after the review report: a person reads the files.
+6. **Finish:** set `stage: ship` and `run: attended`, log the result, and
+   print `FACTORY RUN DONE: <slug>`. Do not push.
 
 ## Rules for every stage
 

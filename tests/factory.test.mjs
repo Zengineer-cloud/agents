@@ -11,10 +11,10 @@ const factory = fileURLToPath(new URL("../factory/", import.meta.url));
 const lines = (p) => readFileSync(p, "utf8").trimEnd().split("\n").length;
 
 // ── test-lock.mjs ──────────────────────────────────────────────────────────────
-function repo(stage) {
+function repo(stage, mode = "attended") {
   const dir = mkdtempSync(join(tmpdir(), "test lock "));
   mkdirSync(join(dir, "specs", "login"), { recursive: true });
-  writeFileSync(join(dir, "specs", "login", "status.md"), `---\nstage: ${stage}\n---\n# Status\n`);
+  writeFileSync(join(dir, "specs", "login", "status.md"), `---\nstage: ${stage}\nrun: ${mode}\n---\n# Status\n`);
   writeFileSync(join(dir, "specs", "login", "tests.lock"), "# acceptance tests\ntests/login.test.ts\n");
   const run = (file, raw) =>
     spawnSync("node", [join(factory, "hooks", "test-lock.mjs")], {
@@ -35,6 +35,14 @@ test("test-lock asks before an edit to a locked test during build", () => {
 test("test-lock asks before an edit to the lock file itself", () => {
   const t = repo("review");
   assert.equal(decision(t.run(join(t.dir, "specs", "login", "tests.lock"))), "ask");
+});
+
+test("test-lock denies instead of asking in an unattended run", () => {
+  const t = repo("build", "unattended");
+  const r = t.run(join(t.dir, "tests", "login.test.ts"));
+  assert.equal(decision(r), "deny");
+  assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /FACTORY RUN PARKED/);
+  assert.equal(decision(t.run("src/login.ts")), "none", "other files still go through");
 });
 
 test("test-lock lets other files and finished features through", () => {
