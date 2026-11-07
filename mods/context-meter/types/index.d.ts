@@ -49,6 +49,10 @@ export type Handoff = {
   waited?: number
 }
 
+// A warning sign the token count misses: repeated corrections, a loop, a large
+// context left idle near the cache expiry, or "done" said late in a long one.
+export type Signal = { kind: 'corrections' | 'loop' | 'idle' | 'done'; text: string }
+
 declare module 'claude-code' {
   interface PluginState {
     'context-meter': {
@@ -58,6 +62,7 @@ declare module 'claude-code' {
       isOpen: boolean
       warned: number
       handoff: Handoff | null
+      signal: Signal | null
     }
   }
 }

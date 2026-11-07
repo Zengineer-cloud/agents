@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Category, Detail, Handoff, Meter, Setup } from '../types'
+import type { Category, Detail, Handoff, Meter, Setup, Signal } from '../types'
 import {
   EFFORTS,
   HANDOFF_COMMAND,
@@ -10,7 +10,7 @@ import {
   aliasOf,
   averageGrowth,
   baseline,
-  cardSvg,
+  breakdownSvg,
   compact,
   compactInstructions,
   contextLevel,
@@ -21,20 +21,35 @@ import {
   handoffPath,
   handoffPrompt,
   lastDelta,
-  limitName,
+  limitRow,
   forcedCompactAt,
   marks,
   parseAlias,
   readPrompt,
-  resetIn,
+  segments,
   signed,
-  sparkline,
   stageOf,
+  stripSvg,
   turnsLeft,
   warning,
   windowNote,
+  zoneHint,
   zoneName,
 } from './rules'
+import {
+  CACHE_TTL_MS,
+  CORRECTIONS_LIMIT,
+  IDLE_TOKENS,
+  IDLE_WARN_BEFORE_MS,
+  callOf,
+  claimsDone,
+  doneWarning,
+  idleWarning,
+  isCorrection,
+  loopIn,
+  signalText,
+} from './signals'
+import type { Call } from './signals'
 
 const meter = atom({ plugin: 'context-meter', key: 'meter' } as const, null as Meter | null)
 const detail = atom({ plugin: 'context-meter', key: 'detail' } as const, null as Detail | null)
@@ -43,6 +58,8 @@ const isOpen = atom({ plugin: 'context-meter', key: 'isOpen' } as const, false)
 // The highest warning stage already shown; kept in state so a reload doesn't repeat a toast.
 const warned = atom({ plugin: 'context-meter', key: 'warned' } as const, 0)
 const handoff = atom({ plugin: 'context-meter', key: 'handoff' } as const, null as Handoff | null)
+// The warning sign the band shows until the next prompt (see signals.ts).
+const signal = atom({ plugin: 'context-meter', key: 'signal' } as const, null as Signal | null)
 
 const PHASE_TEXT: Record<Handoff['phase'], string> = {
   queued: 'handoff queued: it starts when this turn ends',
@@ -71,6 +88,30 @@ let holdsThisTurn = 0
 let lastTurnFailed = false
 // The hold is announced once per context, not on every turn it repeats.
 let holdToasted = false
+
+// The warning signs' memory, per process: corrections in a row, the recent
+// tool calls, when the last turn ended and whether one runs now, the idle
+// timer, and whether "done" was already flagged in this context.
+let corrections = 0
+let calls: Call[] = []
+let lastTurnEndAt = 0
+let turnActive = false
+let idleTimer: { cancel: () => void } | undefined
+let doneFlagged = false
+// Idle this long, an engine compaction is the cache-expiry one, not a full window.
+const IDLE_COMPACT_MS = 5 * 60_000
+
+// A fresh context (a handoff's clear, a compaction) starts the signs over.
+function resetSignals() {
+  corrections = 0
+  calls = []
+  doneFlagged = false
+}
+
+async function raise($: EngineInterface, next: Signal, toast?: string) {
+  await update($, signal, () => next)
+  if (toast) $.ui.toast(toast, { timeoutMs: 12000 })
+}
 
 // The free figures: fill, limits and cost. Cheap enough for every tool call.
 // `tokensHint` stands in when the engine has no count yet (right after a compaction).
@@ -215,6 +256,7 @@ async function resetContext($: EngineInterface, path: string) {
     await $.command.run({ command: 'clear', args: '' })
     lastClearAt = at
     holdToasted = false
+    resetSignals()
   } catch {
     how = 'compacted'
     if (!(await runCommand($, 'compact', compactInstructions(path)))) {
@@ -237,6 +279,43 @@ async function resetContext($: EngineInterface, path: string) {
   }
 }
 
+// The person's own prompt: it ends the last warning sign, and counts toward a
+// run of corrections.
+async function notePrompt($: EngineInterface, text: string) {
+  corrections = isCorrection(text) ? corrections + 1 : 0
+  if (corrections < CORRECTIONS_LIMIT) return void (await update($, signal, () => null))
+  const toast =
+    corrections === CORRECTIONS_LIMIT
+      ? `${corrections} corrections in a row. Models that take a wrong turn rarely recover in the same conversation: ask Claude to consolidate what you've said into one prompt, then hand off.`
+      : undefined
+  await raise($, { kind: 'corrections', text: signalText.corrections(corrections) }, toast)
+}
+
+// The end of a main-loop turn: "done" said late in a long context gets one
+// check-it note per context, and a large idle context a warning before the
+// prompt cache expires.
+async function noteTurnEnd($: EngineInterface, answer: string | undefined) {
+  const m = await read($, meter)
+  if (!m) return
+  const mk = marks(m.window, (await read($, detail))?.autoCompactAt)
+  if (answer !== undefined && !doneFlagged && m.tokens >= mk.dumb && claimsDone(answer)) {
+    doneFlagged = true
+    await raise($, { kind: 'done', text: signalText.done() }, doneWarning(m.tokens))
+  }
+  idleTimer?.cancel()
+  idleTimer = undefined
+  if (m.tokens < IDLE_TOKENS) return
+  idleTimer = $.clock.after(CACHE_TTL_MS - IDLE_WARN_BEFORE_MS, () => {
+    idleTimer = undefined
+    void quietly(
+      read($, meter).then(now => {
+        if (turnActive || !now || now.tokens < IDLE_TOKENS) return
+        return raise($, { kind: 'idle', text: signalText.idle() }, idleWarning(now.tokens))
+      }),
+    )
+  })
+}
+
 // A read-back this chat still owes from a session that ended before it ran, if recent.
 async function pendingReadBack($: EngineInterface): Promise<Pending | undefined> {
   if (pending === undefined) return undefined
@@ -256,6 +335,11 @@ export const register: Register = on => {
     holdToasted = false
     holdsThisTurn = 0
     lastTurnFailed = false
+    resetSignals()
+    turnActive = false
+    lastTurnEndAt = 0
+    idleTimer?.cancel()
+    idleTimer = undefined
     await quietly($.command.register(HANDOFF_COMMAND))
     // The breakdown first: it says which window the meter measures against.
     await quietly(refreshDetail($))
@@ -278,6 +362,10 @@ export const register: Register = on => {
   // `[1m]` mark, so the model comes from `$.session.model()` instead.
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
+      // A main-loop request: a turn runs, so the idle warning is moot.
+      turnActive = true
+      idleTimer?.cancel()
+      idleTimer = undefined
       const { effort } = e
       void quietly(update($, setup, prev => (prev?.effort === effort ? prev : { options: [], ...prev, effort })))
     }
@@ -289,7 +377,22 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     // Not awaited, so the meter never holds up a tool result.
-    if (e.agentId === undefined) void quietly(refresh($, false))
+    if (e.agentId === undefined) {
+      void quietly(refresh($, false))
+      const isError = 'isError' in result && result.isError === true
+      calls = [...calls, callOf(e.tool, e as unknown as Record<string, unknown>, isError)].slice(-24)
+      const loop = loopIn(calls)
+      if (loop) {
+        const text = signalText.loop(loop)
+        void quietly(
+          read($, signal).then(cur =>
+            cur?.text === text
+              ? undefined
+              : raise($, { kind: 'loop', text }, `${text}. A step that keeps failing or flipping is a common sign of a confused context.`),
+          ),
+        )
+      }
+    }
     return result
   })
 
@@ -299,6 +402,9 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     // Typed at the terminal, or sent by the Desktop app (`sdk`); never a plugin's own.
     if (e.origin.kind !== 'composer' && e.origin.kind !== 'sdk') return next(e)
+    // A slash command or a hidden prompt is no correction. Older engines lack both fields.
+    const flags = e as { command?: unknown; isMeta?: unknown }
+    if (!flags.command && !flags.isMeta) await quietly(notePrompt($, e.text))
     const job = await read($, handoff)
     if (job?.path && (job.phase === 'writing' || job.phase === 'clearing')) {
       return next({
@@ -324,8 +430,11 @@ export const register: Register = on => {
     // it is held, and the person hands off when ready. Near the hard limit it
     // runs; so does the second attempt in one turn, and the one after a failed
     // turn, because then the request itself is too long and no doc can help.
+    // Idle, the engine compacts to spare a cache-expired re-read; that one runs.
+    const isIdle = !turnActive && lastTurnEndAt > 0 && (await $.clock.now()) - lastTurnEndAt >= IDLE_COMPACT_MS
     if (
       e.trigger === 'auto' &&
+      !isIdle &&
       job?.phase !== 'clearing' &&
       m &&
       m.tokens < forcedCompactAt(m.window) &&
@@ -346,8 +455,16 @@ export const register: Register = on => {
     // A compaction ends no turn: record its drop and redraw at once. The engine
     // has no count until the next response, so the compaction's own stands in.
     const after = result.skip === undefined ? result.tokensAfter : undefined
+    if (result.skip === undefined) resetSignals()
     void quietly(refreshDetail($).then(() => refresh($, true, after)))
     return result
+  })
+
+  // The engine pushes a measurement when a rate-limit window moves a whole
+  // point, so the limits refill after a reset without waiting for a tool call.
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) await quietly(refresh($, false))
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -361,6 +478,9 @@ export const register: Register = on => {
       await quietly(refresh($, true))
       if ((await read($, handoff))?.phase === 'queued') await quietly(beginHandoff($))
       void quietly(refreshSetup($))
+      turnActive = false
+      lastTurnEndAt = await $.clock.now()
+      await quietly(noteTurnEnd($, e.reason === 'answer' ? e.answer : undefined))
     }
     return result
   })
@@ -378,6 +498,8 @@ export const register: Register = on => {
     const s = await read($, setup)
     const now = await $.clock.now()
     const job = await read($, handoff)
+    // A warning sign outranks the trend, never a handoff in progress.
+    const sign = job ? null : await read($, signal)
     const wide = e.props.bodyColumns >= 90
     const autoCompactAt = d?.autoCompactAt
     const mk = marks(m.window, autoCompactAt)
@@ -393,6 +515,7 @@ export const register: Register = on => {
       left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'a forced compact' : 'full') : 'the handoff'}`
     const status = job ? PHASE_TEXT[job.phase] : undefined
     const note = windowNote(d?.window, m.window)
+    const fiveHour = m.limits.filter(l => l.kind === 'five_hour').map(l => limitRow(l, now))[0]
     const current = s?.alias ? parseAlias(s.alias) : undefined
     // The engine's own band (and any plugin's beneath) stays; this one goes under it.
     const below = await next(e)
@@ -403,6 +526,7 @@ export const register: Register = on => {
       <Button
         key="toggle"
         plain
+        dimColor
         {...(Svg ? {} : { hotkey: 'd' })}
         label={Svg ? `${open ? '▾' : '▸'} Details` : `${open ? '▾' : '▸'} Context`}
         onPress={async () => {
@@ -413,116 +537,76 @@ export const register: Register = on => {
       />
     )
 
-    // The big view where the surface draws images; a text row in the terminal.
-    // The card holds the figures only: a sentence that may run long (the window
-    // note) is a text row under it, where it wraps.
-    const headline =
-      Svg ? (
-        <Box flexDirection="column">
-          <Svg
-            key="card"
-            alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
-            source={cardSvg({
-              percent: m.percent,
-              tokens: m.tokens,
-              window: m.window,
-              growth: delta !== undefined ? `${signed(delta)} last turn` : undefined,
-              left: leftText,
-              status,
-              marks: mk,
-              limits: m.limits.map(l => ({ name: limitName(l.kind), percent: l.percent, reset: resetIn(l.resetsAt, now) })),
-            })}
-          />
-          {note ? (
-            <Box paddingLeft={1}>
-              <Text dimColor>{note}</Text>
-            </Box>
-          ) : null}
-        </Box>
-      ) : (
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {toggle}
-          <Text>
-            <Text color={color}>{gauge(m.tokens, m.window, wide ? 24 : 12).filled}</Text>
-            <Text dimColor>{gauge(m.tokens, m.window, wide ? 24 : 12).empty}</Text>
-          </Text>
-          <Text bold color={color}>
-            {m.percent}%
-          </Text>
-          <Text color={color}>{zoneName(m.tokens, mk)}</Text>
-          <Text dimColor>
-            {compact(m.tokens)}/{compact(m.window)}
-            {status ? ` · ${status}` : ''}
-            {!status && delta !== undefined ? ` · ${signed(delta)} last turn` : ''}
-            {!status && leftText ? ` · ${leftText}` : ''}
-            {!status && note ? ` · ${note}` : ''}
-            {m.limits.find(l => l.kind === 'five_hour') ? ` · 5h ${Math.round(m.limits.find(l => l.kind === 'five_hour')!.percent)}%` : ''}
-          </Text>
-        </Box>
-      )
-
-    const options = s?.options ?? []
-    const at = effort ? EFFORTS.indexOf(effort as (typeof EFFORTS)[number]) : -1
     // Doc, fresh context, read-back: the steps the meter runs on entering the
     // dumb zone. Offered at any fill, so a natural break can take it early;
-    // quiet before the zone, a button inside it.
+    // quiet before the zone, a button inside it or while a warning sign shows.
+    const isUrgent = isDumb || sign !== null
     const handoffButton =
       !e.props.isWorking && (job === null || job.phase === 'queued') ? (
         <Button
           key="handoff"
-          {...(isDumb ? {} : { plain: true as const, dimColor: true })}
-          label={isDumb ? 'Handoff' : '⇥ Handoff'}
+          {...(isUrgent ? {} : { plain: true as const, dimColor: true })}
+          label={isUrgent ? 'Handoff' : '⇥ Handoff'}
           onPress={() => quietly(beginHandoff($))}
         />
       ) : null
-    // Two quiet rows, each a label column, its control, and an action at the
-    // right edge: a radio group for the model with Details, a stepped slider
-    // for effort with Handoff. Plain Buttons draw as bare text, so the glyphs
-    // carry the state.
-    const label = (text: string) => (
-      <Box width={8}>
-        <Text dimColor>{text}</Text>
-      </Box>
-    )
-    const controls = (
+
+    // What the context is doing: a handoff's phase while one runs, else the
+    // growth and the countdown. The window note rides along; it can wrap.
+    const trend = status
+      ? status
+      : [delta !== undefined ? `${signed(delta)} last turn` : undefined, leftText, note].filter(Boolean).join(' · ')
+    const zone = zoneName(m.tokens, mk)
+
+    // Two quiet lines. Where the surface draws images: a thin strip of bars
+    // (context, then each rate limit), and under it the zone and trend with
+    // Handoff and Details at the right. In the terminal, one text row.
+    const headline = Svg ? (
       <Box flexDirection="column">
+        <Svg
+          key="card"
+          alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
+          source={stripSvg({
+            percent: m.percent,
+            tokens: m.tokens,
+            window: m.window,
+            marks: mk,
+            limits: m.limits.map(l => limitRow(l, now)),
+          })}
+        />
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="row" gap={2} flexWrap="wrap" alignItems="center">
-            {options.length ? label('Model') : null}
-            {families(options).map(f => (
-              <Button
-                key={`model-${f}`}
-                plain
-                dimColor={current?.family !== f}
-                label={`${current?.family === f ? '◉' : '○'} ${f.charAt(0).toUpperCase() + f.slice(1)}`}
-                // The 1M variant wherever a family has one; Haiku has none and stays 200k.
-                onPress={() => runCommand($, 'model', aliasFor(f, true, options))}
-              />
-            ))}
+          <Text>
+            <Text color={color}>{`● ${zone.charAt(0).toUpperCase()}${zone.slice(1)}`}</Text>
+            {sign ? (
+              <Text color="warning">{` · ⚠ ${sign.text}`}</Text>
+            ) : (
+              <Text dimColor>{trend ? ` · ${trend}` : ''}</Text>
+            )}
+          </Text>
+          <Box flexDirection="row" gap={2} alignItems="center">
+            {handoffButton}
+            {toggle}
           </Box>
-          {Svg ? toggle : null}
         </Box>
-        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="row" alignItems="center" flexWrap="wrap">
-            {label('Effort')}
-            <Text dimColor>low </Text>
-            {EFFORTS.map((choice, i) => (
-              <Box key={`stop-${choice}`} flexDirection="row">
-                {i > 0 ? <Text dimColor={i > at}>──</Text> : null}
-                <Button
-                  key={`effort-${choice}`}
-                  plain
-                  dimColor={i > at}
-                  label={i === at ? '◉' : i < at ? '●' : '○'}
-                  onPress={() => runCommand($, 'effort', choice)}
-                />
-              </Box>
-            ))}
-            <Text dimColor> max</Text>
-            <Text bold>{effort ? `  ${effort}` : ''}</Text>
-          </Box>
-          {handoffButton}
-        </Box>
+      </Box>
+    ) : (
+      <Box flexDirection="row" gap={1} flexWrap="wrap">
+        {toggle}
+        <Text>
+          <Text color={color}>{gauge(m.tokens, m.window, wide ? 24 : 12).filled}</Text>
+          <Text dimColor>{gauge(m.tokens, m.window, wide ? 24 : 12).empty}</Text>
+        </Text>
+        <Text bold color={color}>
+          {m.percent}%
+        </Text>
+        <Text color={color}>{zone}</Text>
+        <Text dimColor>
+          {compact(m.tokens)}/{compact(m.window)}
+          {trend ? ` · ${trend}` : ''}
+          {fiveHour ? ` · 5h ${Math.round(fiveHour.percent)}%` : ''}
+        </Text>
+        {sign ? <Text color="warning">{`⚠ ${sign.text}`}</Text> : null}
+        {handoffButton}
       </Box>
     )
 
@@ -531,84 +615,148 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {below}
           {headline}
-          {controls}
         </Box>
       )
     }
 
-    const used =(d?.categories ?? []).filter(c => c.kind === 'used').sort((a, z) => z.tokens - a.tokens)
-    const rest = (d?.categories ?? []).filter(c => c.kind !== 'used')
+    const options = s?.options ?? []
+    const label = (text: string) => (
+      <Box width={10}>
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
+    // One fact per line: its label, the figure that matters, then dim context.
+    const fact = (name: string, lead: string, rest = '', truncate = false) => (
+      <Box key={`fact-${name}`} flexDirection="row">
+        {label(name)}
+        <Text {...(truncate ? { wrap: 'truncate' as const } : {})}>
+          {lead}
+          <Text dimColor>{rest}</Text>
+        </Text>
+      </Box>
+    )
+    const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
+    // The session's settings on one row, as words: the current pick is a
+    // framed button, the rest bare and dim.
+    const pick = (key: string, text: string, isOn: boolean, onPress: () => unknown) => (
+      <Button key={key} {...(isOn ? {} : { plain: true as const, dimColor: true })} label={text} onPress={onPress} />
+    )
+    const controls = (
+      <Box flexDirection="row" gap={3} flexWrap="wrap" alignItems="center">
+        {options.length ? (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {label('Model')}
+            {families(options).map(f =>
+              // The 1M variant wherever a family has one; Haiku has none and stays 200k.
+              pick(`model-${f}`, cap(f), current?.family === f, () =>
+                runCommand($, 'model', aliasFor(f, true, options)),
+              ),
+            )}
+          </Box>
+        ) : null}
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {label('Effort')}
+          {EFFORTS.map(choice => pick(`effort-${choice}`, choice, effort === choice, () => runCommand($, 'effort', choice)))}
+        </Box>
+      </Box>
+    )
+
+    const parts = d ? segments(d.categories, m.window) : []
+    // An image where the surface draws one; in the terminal, a row per part.
+    const breakdown =
+      d === null ? (
+        <Text dimColor>Counting…</Text>
+      ) : Svg ? (
+        <Svg
+          key="breakdown"
+          alt={parts.map(p => `${p.name} ${compact(p.tokens)}`).join(', ')}
+          source={breakdownSvg(parts, m.window)}
+        />
+      ) : (
+        <Box flexDirection="column">
+          {parts.map(p => (
+            <Box key={`cat-${p.name}`} flexDirection="row" gap={1}>
+              <Box width={22}>
+                <Text dimColor={p.kind !== 'used'} wrap="truncate">
+                  {p.name}
+                </Text>
+              </Box>
+              <Box width={6} justifyContent="flex-end">
+                <Text>{compact(p.tokens)}</Text>
+              </Box>
+              <Text color={p.kind === 'used' ? p.color : undefined} dimColor={p.kind !== 'used'}>
+                {p.kind === 'free' ? '' : gauge(p.tokens, m.window, wide ? 20 : 10).filled}
+              </Text>
+              <Text dimColor>{Math.round((p.tokens / m.window) * 100)}%</Text>
+            </Box>
+          ))}
+        </Box>
+      )
 
     const fixed = d ? baseline(d.categories) : 0
+    const limitText = m.limits.map(l => {
+      const r = limitRow(l, now)
+      return { lead: `${r.name} ${Math.round(r.percent)}%`, rest: r.reset ? ` ${r.reset === 'just now' ? 'reset just now' : `resets ${r.reset}`}` : '' }
+    })
+    const memory = d?.memoryFiles ?? []
     return (
       <Box flexDirection="column">
         {below}
         {headline}
-        {controls}
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {d === null ? <Text dimColor>Counting…</Text> : null}
-          {[...used, ...rest].map(c => {
-            const g = gauge(c.tokens, m.window, wide ? 20 : 10)
-            return (
-              <Box key={`cat-${c.name}`} flexDirection="row" gap={1}>
-                <Box width={22}>
-                  <Text dimColor={c.kind !== 'used'} wrap="truncate">
-                    {c.name}
-                  </Text>
-                </Box>
-                <Box width={6} justifyContent="flex-end">
-                  <Text>{compact(c.tokens)}</Text>
-                </Box>
-                <Text color={c.kind === 'used' ? c.color : undefined} dimColor={c.kind !== 'used'}>
-                  {c.kind === 'free' ? '' : g.filled}
-                </Text>
-                <Text dimColor>{Math.round((c.tokens / m.window) * 100)}%</Text>
-              </Box>
-            )
-          })}
-
-          <Box flexDirection="row" marginTop={1}>
-            {label('Growth')}
-            <Text dimColor>
-              {m.history.length >= 2 ? `${sparkline(m.history.slice(-12))} ` : 'one turn so far'}
-              {growth !== undefined ? ` avg ${signed(Math.round(growth))}/turn` : ''}
-              {` · handoff at ${compact(mk.dumb)}`}
-              {autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}
-            </Text>
+        <Box flexDirection="column" marginTop={1} gap={1}>
+          {controls}
+          {breakdown}
+          <Box flexDirection="column">
+            {fact(
+              'Zone',
+              cap(zone),
+              ` · ${zoneHint(zone, mk)}`,
+            )}
+            {fact(
+              'Signals',
+              sign ? sign.text : 'none',
+              ` · watching for corrections in a row, repeated failing calls, idle near cache expiry, and "done" past ${compact(mk.dumb)}`,
+              true,
+            )}
+            {fact(
+              'Growth',
+              growth !== undefined ? `avg ${signed(Math.round(growth))}/turn` : 'one turn so far',
+              ` · handoff at ${compact(mk.dumb)}${autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}`,
+            )}
+            {limitText.length
+              ? fact(
+                  'Limits',
+                  limitText[0]!.lead,
+                  `${limitText[0]!.rest}${limitText
+                    .slice(1)
+                    .map(l => ` · ${l.lead}${l.rest}`)
+                    .join('')}`,
+                )
+              : null}
+            {fact(
+              'Cost',
+              m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'n/a',
+              d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}%` : '',
+            )}
+            {fixed > 0
+              ? fact(
+                  'Baseline',
+                  compact(fixed),
+                  ` on every turn${d && d.mcpTokens > 0 ? `, MCP tools ${compact(d.mcpTokens)} of it` : ''}`,
+                )
+              : null}
+            {memory.length
+              ? fact(
+                  'Memory',
+                  memory
+                    .slice(0, 3)
+                    .map(f => `${fileName(f.path)} ${compact(f.tokens)}`)
+                    .join(' · '),
+                  memory.length > 3 ? ` · +${memory.length - 3} more` : '',
+                  true,
+                )
+              : null}
           </Box>
-          {m.limits.length ? (
-            <Box flexDirection="row">
-              {label('Limits')}
-              <Text dimColor>
-                {m.limits
-                  .map(l => {
-                    const when = resetIn(l.resetsAt, now)
-                    return `${limitName(l.kind)} ${Math.round(l.percent)}%${when ? ` (resets ${when})` : ''}`
-                  })
-                  .join(' · ')}
-              </Text>
-            </Box>
-          ) : null}
-          <Box flexDirection="row">
-            {label('Session')}
-            <Text dimColor>
-              {m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'cost n/a'}
-              {d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}% on the last request` : ''}
-              {d && d.mcpTokens > 0 ? ` · MCP tools ${compact(d.mcpTokens)}` : ''}
-              {fixed > 0 ? ` · baseline ${compact(fixed)} on every turn (prompt, tools, memory)` : ''}
-            </Text>
-          </Box>
-          {d && d.memoryFiles.length ? (
-            <Box flexDirection="row">
-              {label('Memory')}
-              <Text dimColor wrap="truncate">
-                {d.memoryFiles
-                  .slice(0, 4)
-                  .map(f => `${fileName(f.path)} ${compact(f.tokens)}`)
-                  .join(' · ')}
-              </Text>
-            </Box>
-          ) : null}
         </Box>
       </Box>
     )

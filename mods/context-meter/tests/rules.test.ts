@@ -4,7 +4,6 @@ import {
   aliasFor,
   aliasOf,
   averageGrowth,
-  cardSvg,
   fit,
   compact,
   compactInstructions,
@@ -20,9 +19,13 @@ import {
   parseAlias,
   readPrompt,
   resetIn,
+  limitRow,
   signed,
   sparkline,
   stageOf,
+  stripSvg,
+  segments,
+  breakdownSvg,
   turnsLeft,
   warning,
   zoneName,
@@ -55,33 +58,56 @@ describe('model and effort', () => {
   })
 })
 
-test('the card is one SVG with the figures and escaped text', () => {
-  const card = {
+test('the strip is one thin SVG line: figures, bars and short resets', () => {
+  const strip = {
     percent: 52,
     tokens: 104_000,
     window: 200_000,
-    growth: '+6k last turn',
-    left: '≈11 turns to <the handoff>',
-    limits: [{ name: '5h', percent: 31, reset: 'in 2h 10m' }],
+    limits: [
+      { name: '5h', percent: 31, reset: 'in 2h 10m' },
+      { name: '7d<', percent: 80, reset: 'just now' },
+    ],
   }
-  const svg = cardSvg(card)
+  const svg = stripSvg(strip)
   expect(svg.startsWith('<svg')).toBe(true)
+  expect(svg).toContain('height="26"')
   expect(svg).toContain('>52%<')
   expect(svg).toContain('104k')
-  expect(svg).toContain('resets in 2h 10m')
-  expect(svg).toContain('turns to &lt;the handoff&gt;')
-  expect(svg).toContain('Dumb zone')
+  // Short resets in the line; the full sentences live in Details.
+  expect(svg).toContain('>2h 10m<')
+  expect(svg).toContain('>reset<')
+  expect(svg).toContain('7d&lt;')
+  expect(svg).not.toContain('<title>')
+  expect(svg).not.toContain('<circle')
   expect(svg.length).toBeLessThan(131072)
-  // A handoff in progress takes the place of growth and the countdown.
-  const busy = cardSvg({ ...card, status: 'handoff 2/3: clearing the context' })
-  expect(busy).toContain('handoff 2/3: clearing the context')
-  expect(busy).not.toContain('+6k last turn')
-  // The text column is clipped, and a line too long for it is cut, so the
-  // limit column never gets written over.
-  expect(svg).toContain('clip-path="url(#col)"')
-  const long = cardSvg({ ...card, left: 'a countdown that goes on and on and on and on and on and on and on and on and on' })
-  expect(long).toContain('…')
-  expect(long).not.toContain('on and on and on and on and on and on and on and on')
+  // No limits: no hairline either.
+  expect(stripSvg({ ...strip, limits: [] })).not.toContain('class="rule"')
+})
+
+test('the breakdown sums parts under 1% as Other and draws one stacked bar with a legend', () => {
+  const cats = [
+    { name: 'System tools', tokens: 36_000, color: 'inactive', kind: 'used' as const },
+    { name: 'Messages', tokens: 94_000, color: 'permission', kind: 'used' as const },
+    { name: 'Memory files', tokens: 2_000, color: 'claude', kind: 'used' as const },
+    { name: 'Custom agents', tokens: 245, color: 'suggestion', kind: 'used' as const },
+    { name: 'Free space', tokens: 774_000, color: 'inactive', kind: 'free' as const },
+    { name: 'Autocompact buffer', tokens: 33_000, color: 'inactive', kind: 'buffer' as const },
+  ]
+  const parts = segments(cats, 1_000_000)
+  expect(parts.map(p => `${p.name} ${p.tokens}`)).toEqual([
+    'Messages 94000',
+    'System tools 36000',
+    'Other 2245',
+    'Autocompact buffer 33000',
+    'Free space 774000',
+  ])
+  const svg = breakdownSvg(parts, 1_000_000)
+  expect(svg.startsWith('<svg')).toBe(true)
+  expect(svg).toContain('Messages<tspan class="m"> 94k</tspan>')
+  expect(svg).toContain('fill="url(#hatch)"')
+  // Five parts, four to a row: two legend rows.
+  expect(svg).toContain('height="64"')
+  expect(svg).not.toContain('Custom agents')
 })
 
 test('fit cuts a line to its column by glyph width', () => {
@@ -150,6 +176,20 @@ describe('estimates', () => {
     const now = Date.parse('2026-10-06T10:00:00Z')
     expect(resetIn('2026-10-06T12:10:00Z', now)).toBe('in 2h 10m')
     expect(resetIn('2026-10-06T10:20:00Z', now)).toBe('in 20m')
+  })
+  test('a limit whose reset time has passed reads as a fresh window', () => {
+    const now = Date.parse('2026-10-06T10:00:00Z')
+    expect(limitRow({ kind: 'five_hour', percent: 60, resetsAt: '2026-10-06T09:59:00Z' }, now)).toEqual({
+      name: '5h',
+      percent: 0,
+      reset: 'just now',
+    })
+    expect(limitRow({ kind: 'five_hour', percent: 60, resetsAt: '2026-10-06T10:20:00Z' }, now)).toEqual({
+      name: '5h',
+      percent: 60,
+      reset: 'in 20m',
+    })
+    expect(limitRow({ kind: 'seven_day', percent: 57 }, now)).toEqual({ name: '7d', percent: 57, reset: undefined })
   })
 })
 

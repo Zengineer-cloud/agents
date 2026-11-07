@@ -14,6 +14,7 @@ your formatter and your tests.
 scaffold/                 ← copy this into your repo
 ├── AGENTS.md             project facts, commands, conventions, security (fill in)
 ├── CLAUDE.md             imports AGENTS.md, plus a few Claude-specific notes
+├── REVIEW.md             what code review reports and skips (managed Code Review, factory)
 ├── .gitignore            lines to add to yours
 └── .claude/
     ├── settings.json     permission rules and hook wiring

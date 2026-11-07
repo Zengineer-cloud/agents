@@ -29,7 +29,9 @@ const SCOPE = `
 The change under review is \`git diff ${base}...HEAD\` plus any uncommitted work
 (\`git diff\`). The spec is in \`${spec}/\`: requirements.md (acceptance criteria
 AC-n), plan.md, tasks.md. Read the surrounding code a changed line depends on
-before you judge it.`
+before you judge it. If REVIEW.md exists at the repository root, follow it: a
+finding on its "Do not report" list is refuted, its "Always check" items are
+part of your lens, and only what it calls Important can be blocker or major.`
 
 const LENSES = [
   {

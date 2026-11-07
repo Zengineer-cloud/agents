@@ -155,19 +155,27 @@ const settle = async () => {
 
 const BAND = { plugin: 'context-meter', component: 'AbovePrompt' } as const
 
-test('desktop draws the big card, the terminal a text row with the same figures', async ($, on) => {
+test('desktop draws a thin strip and one zone line, the terminal a text row with the same figures', async ($, on) => {
   answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
   const card = await desk.find({ type: 'Svg' })
   expect(card?.props.alt).toBe('Context 60% full, 120k of 200k tokens')
-  // 120k: past the 100k dumb-zone mark. The model and effort live in the controls, not the card.
-  expect(String(card?.props.source)).toContain('Dumb zone')
-  expect(String(card?.props.source)).toContain('past 100k: handoff, then a fresh context')
+  // An image, not a frame: a frame takes a default height far taller than the strip.
+  expect(card?.props.isInteractive).toBeUndefined()
+  // 120k: past the 100k dumb-zone mark. The zone is a text line; its meaning waits in Details.
+  expect(await desk.find({ type: 'Text', text: /Dumb zone/ })).toBeDefined()
   expect(String(card?.props.source)).not.toContain('Opus')
-  expect(await desk.find({ key: 'model-opus' })).toBeDefined()
+  // The model and effort wait in Details; Handoff stays on the band.
+  expect(await desk.find({ key: 'model-opus' })).toBeUndefined()
+  expect(await desk.find({ key: 'effort-high' })).toBeUndefined()
+  expect(await desk.find({ type: 'Text', text: /past 100k: handoff, then a fresh context/ })).toBeUndefined()
   expect(await desk.find({ key: 'handoff' })).toBeDefined()
+  await desk.press({ key: 'toggle' })
+  expect(await desk.find({ key: 'model-opus' })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^Dumb zone · past 100k: handoff, then a fresh context$/ })).toBeDefined()
+  await desk.press({ key: 'toggle' })
   await desk.unmount()
 
   const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
@@ -208,8 +216,14 @@ test('model buttons pick the 1M variant wherever a family has one', async ($, on
   for (const surface of ['terminal', 'desktop'] as const) {
     runs.length = 0
     const ui = await $.ui.mount({ ...BAND, surface, props: props() })
-    expect((await ui.find({ key: 'model-opus' }))?.props.label).toBe('◉ Opus')
-    expect((await ui.find({ key: 'model-sonnet' }))?.props.label).toBe('○ Sonnet')
+    await ui.press({ key: 'toggle' })
+    // Words, not radio glyphs: the current pick is a framed button, the rest bare.
+    const opus = await ui.find({ key: 'model-opus' })
+    const sonnet = await ui.find({ key: 'model-sonnet' })
+    expect(opus?.props.label).toBe('Opus')
+    expect(opus?.props.plain).toBeUndefined()
+    expect(sonnet?.props.label).toBe('Sonnet')
+    expect(sonnet?.props.plain).toBe(true)
     expect(await ui.find({ key: 'model-1m' })).toBeUndefined()
     expect(await ui.find({ key: 'model-default' })).toBeUndefined()
     expect(await ui.find({ key: 'model-opusplan' })).toBeUndefined()
@@ -217,6 +231,7 @@ test('model buttons pick the 1M variant wherever a family has one', async ($, on
     await ui.press({ key: 'model-haiku' })
     await ui.press({ key: 'model-fable' })
     expect(runs).toEqual(['/model sonnet[1m]', '/model haiku', '/model fable[1m]'])
+    await ui.press({ key: 'toggle' })
     await ui.unmount()
   }
 })
@@ -225,6 +240,7 @@ test('effort buttons run /effort', async ($, on) => {
   const { runs } = answer(on, 40)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'toggle' })
   await ui.press({ key: 'effort-high' })
   await ui.press({ key: 'effort-max' })
   expect(runs).toEqual(['/effort high', '/effort max'])
@@ -249,13 +265,13 @@ test('Handoff: Claude writes the doc, the context is cleared, then Claude reads 
   expect(seen.runs).toEqual(['/clear '])
   expect(seen.prompts[1]).toContain(`just cleared for a handoff. Read the handoff doc at ${DOC}`)
   // The new session's state was empty; the chain refilled it.
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('handoff 3/3')
+  expect(await ui.find({ type: 'Text', text: /handoff 3\/3/ })).toBeDefined()
 
   // The read-back turn ends the handoff.
   seen.percent = 10
   await turnEnds($)
   await settle()
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff')
+  expect(await ui.find({ type: 'Text', text: /handoff \d\/3/ })).toBeUndefined()
 
   // Back past the mark minutes after the clear: a toast about the baseline, no new handoff.
   seen.percent = 60
@@ -432,6 +448,7 @@ test('a refused command shows a toast instead of failing silently', async ($, on
   seen.isBusy = true
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'toggle' })
   await ui.press({ key: 'effort-high' })
   expect(seen.toasts.some(t => t.startsWith('/effort did not run'))).toBe(true)
   await ui.unmount()
@@ -471,7 +488,8 @@ test('a session that loaded a smaller window says so, and Details shows the fixe
   expect(await desk.find({ type: 'Text', text: /loaded a 100k window from an old setting.*a new chat gets the full 200k/ })).toBeDefined()
   await desk.press({ key: 'toggle' })
   // System tools 20k; Messages are not baseline.
-  expect(await desk.find({ type: 'Text', text: /baseline 20k on every turn/ })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^Baseline$/ })).toBeDefined()
+  expect(await desk.find({ type: 'Text', text: /^20k on every turn$/ })).toBeDefined()
   await desk.unmount()
   const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
   expect(await term.find({ type: 'Text', text: /loaded a 100k window/ })).toBeDefined()
@@ -483,16 +501,25 @@ test('the toggle opens the breakdown, limits, cost and memory files, and closes 
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface, props: props() })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
+    // The breakdown: an image on the desktop, a row per part in the terminal.
+    const parts = async () =>
+      surface === 'desktop'
+        ? (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join(' ')
+        : [
+            (await ui.find({ type: 'Text', text: /^Messages$/ })) ? 'Messages' : '',
+            (await ui.find({ type: 'Text', text: /^Autocompact buffer$/ })) ? 'Autocompact buffer' : '',
+          ].join(' ')
+    expect(await parts()).not.toContain('Messages')
     await ui.press({ key: 'toggle' })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Autocompact buffer$/ })).toBeDefined()
+    expect(await parts()).toContain('Messages')
+    expect(await parts()).toContain('Autocompact buffer')
+    expect(await parts()).not.toContain('deferred')
     expect(await ui.find({ type: 'Text', text: /deferred/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /\$1\.84 · cache hit 90%/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\$1\.84 · cache hit 90%$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\.claude\/CLAUDE\.md 1k/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact held until 175k/ })).toBeDefined()
     await ui.press({ key: 'toggle' })
-    expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
+    expect(await parts()).not.toContain('Messages')
     await ui.unmount()
   }
 })
@@ -503,4 +530,64 @@ test('the band draws nothing before the first reading', async ($, on) => {
   expect(await ui.find({ type: 'Svg' })).toBeUndefined()
   expect(await ui.find({ key: 'toggle' })).toBeUndefined()
   await ui.unmount()
+})
+
+test('two corrections in a row raise a sign on the band; a new request clears it', async ($, on) => {
+  const seen = answer(on, 40)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await typed($, 'no, that is the wrong file')
+  expect(seen.toasts.some(t => t.includes('corrections in a row'))).toBe(false)
+  await typed($, "it's still broken")
+  await settle()
+  expect(seen.toasts.some(t => t.includes('2 corrections in a row'))).toBe(true)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  expect(await ui.find({ type: 'Text', text: /⚠ 2 corrections in a row/ })).toBeDefined()
+  // The sign makes the Handoff button solid even before the dumb zone.
+  expect((await ui.find({ key: 'handoff' }))?.props.plain).toBeUndefined()
+  await typed($, 'now add a footer to the page')
+  await settle()
+  expect(await ui.find({ type: 'Text', text: /corrections in a row/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the same call failing three times is a loop; succeeding again is not', async ($, on) => {
+  const seen = answer(on, 40)
+  let fails = true
+  on('tool.call', () => (fails ? { result: 'exit 1', isError: true } : { result: 'ok' }) as never)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const run = (command: string) => $.tool.call({ tool: 'Bash', command, tool_use_id: command } as never)
+  await run('pnpm test')
+  await run('pnpm test')
+  await settle()
+  expect(seen.toasts.some(t => t.includes('failed'))).toBe(false)
+  await run('pnpm test')
+  await settle()
+  expect(seen.toasts.some(t => t.startsWith('Bash pnpm test failed 3× in a row'))).toBe(true)
+  fails = false
+  const before = seen.toasts.length
+  await run('git status')
+  await run('git status')
+  await run('git status')
+  await settle()
+  expect(seen.toasts.length).toBe(before)
+})
+
+test('"done" late in a long context gets one check-it note per context', async ($, on) => {
+  const seen = answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const done = () => $.turn.complete({ turnId: 't', answer: 'Updated the parser. All tests pass.', durationMs: 1, isAborted: false, reason: 'answer' })
+  await done()
+  await settle()
+  expect(seen.toasts.filter(t => t.startsWith('Claude says it is done')).length).toBe(1)
+  await done()
+  await settle()
+  expect(seen.toasts.filter(t => t.startsWith('Claude says it is done')).length).toBe(1)
+})
+
+test('"done" before the dumb zone says nothing', async ($, on) => {
+  const seen = answer(on, 30)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  await $.turn.complete({ turnId: 't', answer: 'Done.', durationMs: 1, isAborted: false, reason: 'answer' })
+  await settle()
+  expect(seen.toasts.some(t => t.startsWith('Claude says it is done'))).toBe(false)
 })

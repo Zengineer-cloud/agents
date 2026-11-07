@@ -1,5 +1,5 @@
 {
-  "description": "Asks the user before any edit to a factory feature's locked acceptance tests (specs/<slug>/tests.lock) while it is in build, review or ship.",
+  "description": "Asks the user before any edit to a factory feature's locked acceptance tests (specs/<slug>/tests.lock) while it is in build, review or ship. Denies the edit in an unattended run.",
   "hooks": {
     "PreToolUse": [
       {

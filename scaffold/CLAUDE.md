@@ -20,4 +20,6 @@
   the `factory` plugin is loaded, `/factory` runs the full spec, build, review and
   ship pipeline on the same `specs/` folders.
 - **Review**: `/code-review` and `/security-review` are built in. Use them before
-  merging significant changes.
+  merging significant changes. `REVIEW.md` holds the review rules. The managed Code
+  Review on GitHub reads it, local `/code-review` does not, so apply its "Do not
+  report" and "Always check" lists to local review results yourself.

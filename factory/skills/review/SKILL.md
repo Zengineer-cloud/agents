@@ -15,6 +15,8 @@ noise from findings that do not hold up.
    verifier verdict PASS. If not, offer `/factory:build`.
 2. **Scale to risk.** Read **Risk** in requirements.md.
    - **low**: `/code-review medium` plus the `factory:verifier`. Skip the workflow.
+     `/code-review` does not read REVIEW.md: drop findings its "Do not report"
+     list names, and check its "Always check" items yourself.
    - **medium**: the workflow below.
    - **high**: the workflow, `/security-review`, and tell the user which files
      they should read themselves before accepting.
@@ -46,8 +48,10 @@ noise from findings that do not hold up.
 
 ## Rules
 
+- With `run: unattended` in status.md, follow "Run unattended" in the factory
+  skill: never ask, park instead, and accept the review only as it allows.
 - The review agents are read-only. Only this session edits code.
 - A finding that contradicts the spec is a spec question, not a code fix.
   Ask the user.
 - If the same kind of finding shows up in two features, propose a rule for
-  AGENTS.md or a check for checks.json under Lessons in status.md.
+  AGENTS.md, REVIEW.md, or a check for checks.json under Lessons in status.md.
