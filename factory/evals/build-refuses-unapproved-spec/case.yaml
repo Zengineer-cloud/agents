@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: build-refuses-unapproved-spec
+description: /factory:build stops when the spec is still at stage spec, and builds nothing.
+tags: [gate]
+context:
+  scaffold_script: fixture.sh
