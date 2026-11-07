@@ -152,3 +152,7 @@ Using another agent? See
 
 Earlier versions (per-language standards skills, command-guard hooks, the
 multi-provider scaffolds) live in git history.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
