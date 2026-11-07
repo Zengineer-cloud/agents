@@ -38,7 +38,7 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | `verifier` | agent | read-only: runs the checks, maps each AC to evidence, finds weakened tests |
 | `factory-review` | workflow | five read-only review lenses, then one skeptic per finding |
 | `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship; denies it in an unattended run |
-| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate |
+| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate, build refuses an unapproved spec, an unattended run prints its launch lines |
 
 ## Design choices
 
@@ -95,12 +95,18 @@ claude plugin validate factory
 node --test tests/factory.test.mjs
 ```
 
-The behavior evals call the model and cost money. Run them before a release
-of a changed skill, from the `factory` folder:
+The behavior evals call the model and cost money. CI runs them
+(`.github/workflows/evals.yml`) on every pull request that changes the plugin,
+and once a week to catch model drift, capped at 10 USD a run. That needs an
+`ANTHROPIC_API_KEY` repository secret; without it the job is skipped. To run
+them locally, from the `factory` folder (`--scaffold` builds the fixture repos
+some cases start from):
 
 ```bash
-claude plugin eval . --runs 3 --max-cost-usd 5
+claude plugin eval . --scaffold --runs 3 --max-cost-usd 5
 ```
+
+When a factory run goes wrong in a real repo, add a case for it here.
 
 The `scaffold/skills/zenn` skill is the light version of the spec stage, for
 repos without this plugin. The research behind the design, and the Claude
