@@ -62,7 +62,7 @@ test("factory skills stay under 90 lines and name themselves", () => {
   for (const name of readdirSync(join(factory, "skills"))) {
     const file = join(factory, "skills", name, "SKILL.md");
     assert.ok(lines(file) <= 90, `${name}/SKILL.md is ${lines(file)} lines`);
-    assert.match(readFileSync(file, "utf8"), new RegExp(`^---\\nname: ${name}\\n`), `${name} frontmatter`);
+    assert.match(readFileSync(file, "utf8"), new RegExp(`^---\\r?\\nname: ${name}\\r?\\n`), `${name} frontmatter`);
   }
 });
 
