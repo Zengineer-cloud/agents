@@ -59,6 +59,7 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 - **Review scales to risk.** Each spec states low, medium or high risk. Low
   gets `/code-review medium`; medium and high get the review workflow; high
   also gets `/security-review` and a list of files for a person to read.
+  The target repo's `REVIEW.md` sets what every review reports and skips.
 
 ## Requirements in the target repo
 

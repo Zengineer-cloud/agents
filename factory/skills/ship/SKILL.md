@@ -47,6 +47,7 @@ A person merges and a person approves production.
    - a line in AGENTS.md (a convention or command agents missed);
    - a command in `.claude/hooks/checks.json` (a check that would have
      caught it);
+   - a line in REVIEW.md (a finding review should always or never report);
    - an edit to a factory skill or agent (in the agents repo).
 3. Show the proposals and apply only the ones the user accepts.
 
