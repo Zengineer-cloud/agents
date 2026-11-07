@@ -17,12 +17,21 @@ try {
 const url = String(payload?.tool_input?.url ?? "");
 if (!url) process.exit(0);
 
-// scheme://host:port/path?query  ->  host (lowercased)
-const host = url
-  .replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, "")
-  .replace(/[/:?].*$/, "")
-  .toLowerCase();
-if (!host) process.exit(0);
+// Parse with the WHATWG URL parser so tricks like `https://evil.com#.github.com`,
+// `https://github.com@evil.com` or backslash variants resolve to the real host.
+// An unparseable URL fails CLOSED.
+let host = "";
+try {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("scheme");
+  host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+} catch {
+  process.stderr.write(
+    `blocked: could not parse '${url}' as an http(s) URL (hook: webfetch-allowlist.mjs).\n`,
+  );
+  process.exit(2);
+}
+if (!host) process.exit(2);
 
 const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const allowlist = join(root, ".claude", "hooks", "allowed-domains.txt");

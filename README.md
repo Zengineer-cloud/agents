@@ -1,5 +1,7 @@
 # agents — one clean scaffold for agentic development
 
+[![test](https://github.com/cleverfakealias/agents/actions/workflows/test.yml/badge.svg)](https://github.com/cleverfakealias/agents/actions/workflows/test.yml)
+
 A single, condensed project scaffold for AI-assisted coding, built on
 June-2026 best practices. Claude Code–native, with `AGENTS.md` as the
 cross-tool contract so Cursor, Codex, Copilot, Devin, and friends read the
@@ -8,6 +10,10 @@ same rules.
 The premise: don't make the agent remember standards — **automate them**.
 Hooks format, lint, and test automatically; skills carry the language
 conventions; permissions and guard hooks enforce security policy.
+
+The guard hooks are a best-effort layer. They pattern-match commands and URLs
+and can be bypassed. The OS sandbox in `settings.local.json` is the real
+security boundary.
 
 ## What's in the box
 
@@ -136,6 +142,18 @@ hook message. That's the whole system working.
 - Using another agent? `AGENTS.md` is read natively by almost everything —
   see [providers.md](providers.md) for per-tool setup and gotchas.
 
+## Testing the hooks
+
+The security hooks have tests that run with Node's built-in test runner. No
+install step is needed.
+
+```bash
+node --test 'scaffold/.claude/hooks/tests/*.test.mjs'
+```
+
+Each test spawns a hook with a tool payload on stdin and checks the exit code
+(0 allows, 2 blocks). CI runs the same command on every push and pull request.
+
 ## Toolchain assumptions (June 2026)
 
 Python: **uv** + **ruff 0.15** + **pytest 9** (mypy/pyright as typecheck gate; ty when stable).
@@ -151,3 +169,7 @@ Agentic Top 10).
 
 Older multi-provider scaffolds (Claude/Copilot/Cursor/Gemini/Codex/Windsurf,
 plus the legacy `.agents/` system) live in git history before June 2026.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
