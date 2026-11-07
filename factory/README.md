@@ -95,10 +95,12 @@ claude plugin validate factory
 node --test tests/factory.test.mjs
 ```
 
-The behavior evals call the model and cost money. CI runs them
-(`.github/workflows/evals.yml`) on every pull request that changes the plugin,
-and once a week to catch model drift, capped at 10 USD a run. That needs an
-`ANTHROPIC_API_KEY` repository secret; without it the job is skipped. To run
+The behavior evals call the model and cost money. The CI workflow
+(`.github/workflows/evals.yml`) is in place but off: it runs only when started
+by hand, capped at 10 USD a run. To turn it on, add an `ANTHROPIC_API_KEY`
+repository secret and uncomment its `pull_request` and `schedule` triggers.
+Then it runs on every pull request that changes the plugin, and once a week to
+catch model drift. Without the secret the job is skipped. To run
 them locally, from the `factory` folder (`--scaffold` builds the fixture repos
 some cases start from):
 
