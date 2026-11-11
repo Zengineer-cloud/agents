@@ -22,7 +22,7 @@ scaffold/                 ← copy this into your repo
     │   ├── checks.mjs    runs your formatter after edits, your tests before Claude finishes
     │   └── checks.json   the commands it runs (empty until you fill it in)
     └── skills/zenn/      /zenn: optional spec-first workflow for larger work
-providers.md              notes for Cursor / Copilot / Codex / Gemini / Devin
+providers.md              notes for Cursor / Copilot / Codex / Antigravity / Gemini CLI / Devin
 mods/                     user-level Claude Code mods (see mods/README.md)
 factory/                  plugin: spec → build → review → ship, with gates (see factory/README.md)
 tests/                    node --test "tests/*.test.mjs": the hook, the scaffold rules, the mods
@@ -43,7 +43,10 @@ instead of overwriting them. Node on `PATH` is the only requirement.
 ### 2. Fill in AGENTS.md
 
 Replace each `<!-- placeholder -->` with the project's name, stack, and real
-commands, and delete the sections you don't need.
+commands, and delete the sections you don't need. Under **Language notes**, keep
+the blocks for the languages the repo uses (Python, Java, TypeScript) and delete
+the rest. **Conventions** and **Tests** hold the rules that keep agents from
+padding a change, hiding errors, and writing tests that prove nothing.
 
 ### 3. Tell the checks hook what to run
 
@@ -64,7 +67,9 @@ the hook off.
   of that type. `{file}` is the edited file's path, already quoted. If the command
   fails, its output goes back to Claude to fix.
 - `verify` commands run when Claude finishes a turn in which it edited files.
-  If one fails, Claude keeps working until it passes.
+  If one fails, Claude gets the output and keeps working. The hook blocks once
+  per turn, so Claude can never loop on it, and it runs again at the end of the
+  next turn until the commands pass.
 - Commands run from the repo root. A command whose tool isn't installed is
   skipped. `CLAUDE_SKIP_CHECKS=1 claude` turns the hook off for a session.
 
