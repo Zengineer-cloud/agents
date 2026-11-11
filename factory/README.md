@@ -38,7 +38,7 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | `verifier` | agent | read-only: runs the checks, maps each AC to evidence, finds weakened tests |
 | `factory-review` | workflow | five read-only review lenses, then one skeptic per finding |
 | `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship; denies it in an unattended run |
-| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate |
+| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate, build and unattended runs refuse a spec that is not approved |
 
 ## Design choices
 
@@ -65,6 +65,17 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
   a cost cap. Build and review then run without questions. Anything that
   would need a person parks the run. It ends at a reviewed local branch, and
   ship stays attended.
+  WARNING: on native Windows an unattended run has no OS sandbox, because the
+  sandbox supports only macOS, Linux and WSL2. The permission rules and auto
+  mode are then the only limits. Use WSL2 or a dev container for a run you do
+  not watch.
+- **Guard against filler and empty tests.** The test-author writes only tests
+  that can fail, with literal expected values and no assertions on mocks. The
+  verifier rejects such tests as evidence and flags silenced checkers. The
+  review's test and simplicity lenses report hidden failures, unrequested
+  options, and idioms older than the toolchain the repo pins. The rules
+  themselves live in the target repo's AGENTS.md (Conventions, Tests,
+  Language notes), so every agent reads the same ones.
 
 ## Requirements in the target repo
 
