@@ -56,5 +56,6 @@ noise from findings that do not hold up.
 - The review agents write nothing in the repo. Only this session edits code.
 - A finding that contradicts the spec is a spec question, not a code fix.
   Ask the user.
-- If the same kind of finding shows up in two features, propose a rule for
-  AGENTS.md, REVIEW.md, or a check for checks.json under Lessons in status.md.
+- If the same kind of finding shows up in two features, propose a fix under
+  Lessons in status.md: a check for checks.json first, a rule for REVIEW.md
+  or AGENTS.md only when no check can catch it.
