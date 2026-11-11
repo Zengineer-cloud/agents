@@ -19,9 +19,12 @@ skills follow the same ≤90-line limit.
 - Hook scripts are cross-platform Node (`.mjs`, run via `node`) and must pass
   `node --check`, handle missing tools gracefully (exit 0, never crash the
   session), and only exit 2 with actionable stderr.
-- Keep the scaffold language-neutral and light on prescription. Prefer Claude
-  Code's built-in controls (permission rules, protected paths, sandbox) over
-  custom hooks that match command text.
+- Keep the scaffold light on prescription. Its hooks, settings and skill stay
+  language-neutral. Language guidance lives only in the optional "Language
+  notes" blocks of `scaffold/AGENTS.md`: a few lines per language, dated, on
+  where agent habits lag current practice. Prefer Claude Code's built-in
+  controls (permission rules, protected paths, sandbox) over custom hooks that
+  match command text.
 - One logical change per commit, conventional commit messages.
 
 ## Tests
