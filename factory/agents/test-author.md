@@ -22,10 +22,25 @@ Rules:
   that instead of guessing.
 - Write no implementation code, stubs that make tests pass, or mocks of the
   unit under test. Mock only true externals (network, clock, third-party APIs).
+- One behavior per test. Assert on the result or the state the AC names, not
+  on calls to a mock, and write the expected value out as a literal: a test
+  that computes it the way the code will proves nothing.
+- Write only tests that can fail. No tests for getters, constants, or what the
+  compiler or framework already guarantees, and no snapshot of large output
+  unless an AC fixes that exact output. A few sharp tests per AC beat many
+  shallow ones.
+- Wait on a condition, never on a fixed sleep. Tests must give the same result
+  on every run.
+- Use the test idioms of the framework version the repo pins and of the
+  "Language notes" in AGENTS.md, not older ones you remember.
 - Run the tests with the repository's test command (from AGENTS.md). Each new
   test must fail, and fail for the right reason: a missing function or wrong
   result, not a syntax error, import typo or broken fixture. Fix your own test
   bugs until that holds.
+- Check every test's setup and assertions against all the ACs, not only the
+  one it names. A test that needs behavior another AC forbids (for example,
+  expecting an error from a line the spec says is never read at that point)
+  is a spec gap: report it instead of writing the test.
 - Do not install packages. If the test framework is missing, report it.
 - Do not commit. Leave the tests in the working tree.
 

@@ -58,15 +58,22 @@ attack path through the changed code.`,
     key: 'tests',
     prompt: `Lens: test integrity. Check that each AC has a test that asserts the stated
 behavior. Report tests that are skipped, deleted, weakened, assert nothing,
-mock the unit under test, or were edited to match the implementation instead
-of the spec. Report production code that special-cases tests.`,
+mock the unit under test, assert only on calls to mocks, compute their expected
+value the way the code does, wait on a fixed sleep, or were edited to match the
+implementation instead of the spec. Report production code that special-cases
+tests. Do not ask for more tests of cases that cannot happen.`,
   },
   {
     key: 'simplicity',
     prompt: `Lens: simplicity and fit. Report code that duplicates an existing helper,
 adds an abstraction with one caller, ignores a convention in AGENTS.md or the
-surrounding code, or leaves dead code, debug output or TODOs behind. Severity
-is at most "minor" unless it hides a bug.`,
+surrounding code, or leaves dead code, debug output or TODOs behind. Report
+filler: handling for cases that cannot happen, options or fallbacks no AC asks
+for, comments that narrate the change, and idioms older than the toolchain the
+repo pins (see "Language notes" in AGENTS.md). Severity is at most "minor",
+except "major" for a silenced checker (any, type: ignore, @ts-ignore,
+@SuppressWarnings, lint-disable) or a failure hidden by a broad catch or a
+default that looks like success.`,
   },
 ]
 

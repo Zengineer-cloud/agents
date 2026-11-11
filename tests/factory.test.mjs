@@ -79,6 +79,6 @@ test("factory hook script passes node --check", () => {
 
 const hasClaude = spawnSync("claude", ["--version"], { shell: true }).status === 0;
 test("factory plugin validates", { skip: !hasClaude && "claude CLI not on PATH" }, () => {
-  const r = spawnSync("claude", ["plugin", "validate", factory], { encoding: "utf8", shell: true });
+  const r = spawnSync("claude", ["plugin", "validate", "--strict", factory], { encoding: "utf8", shell: true });
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });

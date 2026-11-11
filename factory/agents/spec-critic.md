@@ -24,7 +24,10 @@ Report problems in this order, most harmful first:
    version.
 3. **Gaps.** Missing behavior a user will hit: empty input, failure of a
    dependency, auth and permissions, concurrency, limits, migration of
-   existing data, rollback.
+   existing data, rollback. For every input format, ask what happens with
+   empty or blank records (a trailing blank line, an empty file). For every
+   output, ask what happens when a value cannot be written (an encoding the
+   value does not fit, a full disk, a locked target).
 4. **Contradictions** between requirements, plan and tasks, or with the
    repository as it is (a file the plan edits that does not exist, a command
    AGENTS.md does not define).
