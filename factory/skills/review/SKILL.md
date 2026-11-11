@@ -23,8 +23,9 @@ noise from findings that do not hold up.
 3. **Run the review.** Use the plugin's workflow when the Workflow tool is
    available (this skill authorizes that one run). It runs five read-only
    lenses (spec, correctness, security, tests, simplicity), then one skeptic
-   per finding. Tell the user it uses 5 + N agents, N being the number of
-   distinct findings.
+   per finding. A skeptic may run one test or a temp script to settle its
+   finding, and writes nothing in the repo. Tell the user it uses 5 + N
+   agents, N being the number of distinct findings.
 
    ```
    Workflow({ name: "factory:factory-review",
@@ -37,7 +38,9 @@ noise from findings that do not hold up.
    then dispatch the `factory:verifier` agent for the spec and test lenses.
 4. **Report coverage.** List any `deadLenses` as "not reviewed" and any
    `unverified` findings as "not judged". Never call a review clean when a
-   lens did not run.
+   lens did not run. Show each verdict's `proven` level (ran, traced, argued).
+   Before you fix or drop a blocker or major finding that is only `argued`,
+   run its failing case yourself, or tell the user it is unproven.
 5. **Fix.** Fix every confirmed blocker and major finding, one commit each,
    with the finding in the message. Ask the user before fixing a finding that
    needs a spec change. List minor findings and let the user pick.
@@ -50,7 +53,7 @@ noise from findings that do not hold up.
 
 - With `run: unattended` in status.md, follow "Run unattended" in the factory
   skill: never ask, park instead, and accept the review only as it allows.
-- The review agents are read-only. Only this session edits code.
+- The review agents write nothing in the repo. Only this session edits code.
 - A finding that contradicts the spec is a spec question, not a code fix.
   Ask the user.
 - If the same kind of finding shows up in two features, propose a rule for

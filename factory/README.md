@@ -36,7 +36,7 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | `spec-critic` | agent | read-only check of a spec for untestable, vague or missing parts |
 | `test-author` | agent | writes the failing acceptance tests from the ACs only |
 | `verifier` | agent | read-only: runs the checks, maps each AC to evidence, finds weakened tests |
-| `factory-review` | workflow | five read-only review lenses, then one skeptic per finding |
+| `factory-review` | workflow | five read-only review lenses, then one skeptic per finding, which marks its verdict ran, traced or argued |
 | `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship; denies it in an unattended run |
 | `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate, build refuses an unapproved spec, an unattended run prints its launch lines and refuses a spec that is not approved |
 
