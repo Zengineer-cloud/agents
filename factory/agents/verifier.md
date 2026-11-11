@@ -22,14 +22,18 @@ Steps:
    with the reason. Never mark it passed.
 3. For each AC, find the test that covers it and confirm it ran and passed.
    Read the test: does it assert the behavior the AC states, or something
-   weaker? A test that asserts nothing, is skipped, or only checks that code
-   runs, is not evidence.
+   weaker? A test is not evidence when it asserts nothing, is skipped, only
+   checks that code runs, asserts only on calls to a mock, or computes its
+   expected value the way the code does.
 4. Check test integrity against the base branch with `git diff <base>...`:
    - acceptance tests deleted, skipped (`skip`, `xit`, `@pytest.mark.skip`) or
      with loosened assertions after they were written;
    - production code that branches on test-only conditions;
    - snapshot or fixture files rewritten to match new output without a reason
-     in the spec.
+     in the spec;
+   - a checker silenced in the diff (`any`, `# type: ignore`, `@ts-ignore`,
+     `@SuppressWarnings`, a lint-disable comment) or a failure hidden by a
+     broad catch or a default that looks like success.
 5. Check the diff for work outside the tasks: files no task names, or changes
    to `.claude/`, CI workflows or dependencies that the plan does not mention.
 

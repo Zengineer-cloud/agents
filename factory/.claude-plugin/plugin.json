@@ -1,5 +1,6 @@
 {
   "name": "factory",
   "version": "0.1.0",
+  "author": { "name": "zennlogic" },
   "description": "A personal software factory: spec, build, review and ship one feature at a time, with tests first, independent verification, and a person at each gate. Start with /factory."
 }

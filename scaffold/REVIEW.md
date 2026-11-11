@@ -3,7 +3,10 @@
 <!-- Rules that change what a code review reports. Claude Code's managed Code Review
      reads this file on GitHub PRs, from the base branch, never from the PR itself.
      The factory review stage reads it too. Local /code-review reads CLAUDE.md, not
-     this file. Project facts and conventions belong in AGENTS.md. -->
+     this file. Project facts and conventions belong in AGENTS.md.
+     The managed review applies lowered severity, exclusions and the nit cap only
+     when the default branch is protected.
+     https://code.claude.com/docs/en/code-review-customize -->
 
 ## What Important means here
 
@@ -30,4 +33,11 @@ Report at most five Nits per review.
 
 ## Always check
 
+- Error handling that hides a failure: a broad catch, or a default that looks
+  like success.
+- A new test that cannot fail, asserts only on calls to mocks, or computes its
+  expected value the way the code does.
+- A checker silenced in the diff (`any`, `# type: ignore`, `@SuppressWarnings`,
+  a lint-disable comment) with no reason given.
+- Code no requirement asks for: options, fallbacks, or abstractions with one caller.
 - <!-- invariants of this repo, e.g. "every new API route has an integration test" -->

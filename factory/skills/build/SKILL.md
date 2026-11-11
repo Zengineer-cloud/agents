@@ -15,10 +15,14 @@ independent agent has checked.
    `/factory:spec`: nothing gets built without approval.
 2. Read requirements.md, plan.md and tasks.md. Do not re-plan. If the plan
    cannot work, stop, explain why, and propose a spec change.
-3. Make sure the working tree is clean, then create `feat/<slug>` from the
+3. If the spec asserts exact bytes, offsets or golden files, make sure
+   `.gitattributes` marks those fixtures `-text` before the first commit that
+   adds them, so a clone with `core.autocrlf=true` keeps them byte-exact.
+   Do not rely on a local git config.
+4. Make sure the working tree is clean, then create `feat/<slug>` from the
    base branch (or switch to it if it exists). Commit the spec as the first
    commit: `docs(spec): <slug>`.
-4. Set `stage: build`, `branch:` in status.md.
+5. Set `stage: build`, `branch:` in status.md.
 
 ## The loop
 
@@ -50,6 +54,11 @@ independent agent has checked.
 ## Rules
 
 - Never weaken, skip or delete an acceptance test to make it pass.
+- Write the least code that meets the task's ACs, for every valid input and
+  not only the tested ones. No options, fallbacks or abstractions the plan
+  does not name. Follow Conventions, Tests and Language notes in AGENTS.md.
+- Do not silence a checker or hide a failure to get to green. Fix the cause,
+  or stop and say what blocks you.
 - No new dependencies unless the plan names them; the user still approves
   each install.
 - Do not touch `.claude/`, CI workflows, or files the plan does not list
