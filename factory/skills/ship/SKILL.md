@@ -43,13 +43,16 @@ A person merges and a person approves production.
 1. Read the status.md Log and the review results. Write two to five
    **Lessons**: what slowed the run, what an agent got wrong, what a check
    would have caught.
-2. Turn each lesson into one proposed change, smallest first:
-   - a line in AGENTS.md (a convention or command agents missed);
-   - a command in `.claude/hooks/checks.json` (a check that would have
-     caught it);
+2. Turn each lesson into one proposed change. Take the first level that can
+   catch the mistake, because nothing fails when an agent skips a line of text:
+   - a change that removes the mistake: one source of truth, a stricter type,
+     a deleted old way that agents copy;
+   - a command in `.claude/hooks/checks.json`, or a test, that fails on it;
    - a line in REVIEW.md (a finding review should always or never report);
+   - a line in AGENTS.md, only for a judgment call no check can make;
    - an edit to a factory skill or agent (in the agents repo).
-3. Show the proposals and apply only the ones the user accepts.
+3. Show the proposals and apply only the ones the user accepts. For a new
+   check or test, show that it fails on the real mistake before it is added.
 
 ## Rules
 

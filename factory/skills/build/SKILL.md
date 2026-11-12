@@ -39,8 +39,11 @@ independent agent has checked.
 3. **Parallel tasks.** Tasks marked [P] may run as subagents with
    `isolation: worktree`, one per task, when there are three or more. Merge
    their branches back one at a time and run the checks after each merge.
-4. **Stuck.** Two failed attempts at one task: stop, write what you tried
-   into status.md, and ask the user.
+4. **Stuck.** Two failed attempts at one task: stop. Write into status.md
+   what you tried and the one assumption both attempts shared. Test that
+   assumption directly (one run or read that comes out differently if it is
+   false) and log the result. Then ask the user. Do not start a third fix
+   that rests on an untested assumption.
 
 ## Verify
 
