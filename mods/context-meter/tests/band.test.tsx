@@ -515,13 +515,61 @@ test('the toggle opens the breakdown, limits, cost and memory files, and closes 
     expect(await parts()).toContain('Autocompact buffer')
     expect(await parts()).not.toContain('deferred')
     expect(await ui.find({ type: 'Text', text: /deferred/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /^\$1\.84 · cache hit 90%$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\$1\.84$/ })).toBeDefined()
+    // The cache: the last request's split, the lifetime read off the 5h limit, and no response yet.
+    expect(await ui.find({ type: 'Text', text: /^90% from cache · 9k read · 0 written · 1k new$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^1 hour · subscription plan$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^No response yet$/ })).toBeDefined()
+    // Each limit has its own row, and each section a title.
+    expect(await ui.find({ type: 'Text', text: /^31%$/ })).toBeDefined()
+    for (const title of ['Context', 'Cache', 'Limits', 'Session'])
+      expect(await ui.find({ type: 'Text', text: new RegExp('^' + title + '$') })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\.claude\/CLAUDE\.md 1k/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact held until 175k/ })).toBeDefined()
     await ui.press({ key: 'toggle' })
     expect(await parts()).not.toContain('Messages')
     await ui.unmount()
   }
+})
+
+test("a turn's input adds to the session's cache row, and the lifetime runs from that response", async ($, on) => {
+  answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  for (let i = 0; i < 2; i++)
+    await $.turn.complete({
+      turnId: 't',
+      answer: 'ok',
+      durationMs: 1,
+      isAborted: false,
+      reason: 'answer',
+      usage: {
+        model: 'claude-opus-5-5',
+        input_tokens: 1_000,
+        output_tokens: 10,
+        cache_read_input_tokens: 9_000,
+        cache_creation_input_tokens: 0,
+      },
+    })
+  await settle()
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface, props: props() })
+    await ui.press({ key: 'toggle' })
+    expect(await ui.find({ type: 'Text', text: /^This session$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^90% from cache · 18k read · 0 written · 2k new$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Warm · about 60m left if idle$/ })).toBeDefined()
+    await ui.press({ key: 'toggle' })
+    await ui.unmount()
+  }
+})
+
+test('the cacheTtlMinutes option overrides the lifetime read off the plan', { options: { cacheTtlMinutes: 5 } }, async ($, on) => {
+  answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: /^5 minutes · set in options$/ })).toBeDefined()
+  await ui.press({ key: 'toggle' })
+  await ui.unmount()
 })
 
 test('the band draws nothing before the first reading', async ($, on) => {

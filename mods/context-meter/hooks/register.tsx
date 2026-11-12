@@ -1,16 +1,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Category, Detail, Handoff, Meter, Setup, Signal } from '../types'
+import type { Cache, Category, Detail, Handoff, Meter, Setup, Signal } from '../types'
 import {
   EFFORTS,
   HANDOFF_COMMAND,
   HANDOFF_DIR,
   aliasFor,
+  addCount,
   aliasOf,
   averageGrowth,
+  barSvg,
   baseline,
-  breakdownSvg,
+  cacheCount,
+  cacheLine,
+  cacheStateText,
+  cacheTtl,
   compact,
   compactInstructions,
   contextLevel,
@@ -21,6 +26,8 @@ import {
   handoffPath,
   handoffPrompt,
   lastDelta,
+  level,
+  lifetimeText,
   limitRow,
   forcedCompactAt,
   marks,
@@ -29,18 +36,19 @@ import {
   segments,
   signed,
   stageOf,
-  stripSvg,
+  toneOf,
   turnsLeft,
   warning,
   windowNote,
+  zoneGlyph,
   zoneHint,
   zoneName,
 } from './rules'
 import {
-  CACHE_TTL_MS,
   CORRECTIONS_LIMIT,
   IDLE_TOKENS,
   IDLE_WARN_BEFORE_MS,
+  IDLE_WARN_MIN_TTL_MS,
   callOf,
   claimsDone,
   doneWarning,
@@ -60,6 +68,10 @@ const warned = atom({ plugin: 'context-meter', key: 'warned' } as const, 0)
 const handoff = atom({ plugin: 'context-meter', key: 'handoff' } as const, null as Handoff | null)
 // The warning sign the band shows until the next prompt (see signals.ts).
 const signal = atom({ plugin: 'context-meter', key: 'signal' } as const, null as Signal | null)
+// The prompt cache over this session's turns (see "the prompt cache" in rules.ts).
+const cache = atom({ plugin: 'context-meter', key: 'cache' } as const, null as Cache | null)
+// The `cacheTtlMinutes` option: 0 or absent reads the lifetime off the plan.
+let ttlOption: number | undefined
 
 const PHASE_TEXT: Record<Handoff['phase'], string> = {
   queued: 'handoff queued: it starts when this turn ends',
@@ -160,7 +172,6 @@ async function refreshDetail($: EngineInterface) {
   const b = (await $.session.usage({ breakdown: 'summary' })).context.breakdown
   if (b === undefined) return
   const api = b.apiUsage
-  const input = api ? api.input_tokens + api.cache_read_input_tokens + api.cache_creation_input_tokens : 0
   const categories: Category[] = b.categories
     .filter((c): c is typeof c & { kind: Category['kind'] } => c.kind !== 'deferred')
     .map(c => ({ name: c.name, tokens: c.tokens, color: c.color, kind: c.kind }))
@@ -169,7 +180,7 @@ async function refreshDetail($: EngineInterface) {
     windowSource: b.autocompactSource,
     categories,
     autoCompactAt: b.isAutoCompactEnabled ? b.autoCompactThreshold : undefined,
-    cacheHit: api && input > 0 ? Math.round((api.cache_read_input_tokens / input) * 100) : undefined,
+    lastRequest: api ? cacheCount(api) : undefined,
     memoryFiles: [...b.memoryFiles].sort((a, z) => z.tokens - a.tokens).map(f => ({ path: f.path, tokens: f.tokens })),
     mcpTokens: b.mcpTools.filter(t => t.isLoaded).reduce((n, t) => n + t.tokens, 0),
   }))
@@ -305,7 +316,9 @@ async function noteTurnEnd($: EngineInterface, answer: string | undefined) {
   idleTimer?.cancel()
   idleTimer = undefined
   if (m.tokens < IDLE_TOKENS) return
-  idleTimer = $.clock.after(CACHE_TTL_MS - IDLE_WARN_BEFORE_MS, () => {
+  const ttl = cacheTtl(m.limits, ttlOption).ms
+  if (ttl < IDLE_WARN_MIN_TTL_MS) return
+  idleTimer = $.clock.after(ttl - IDLE_WARN_BEFORE_MS, () => {
     idleTimer = undefined
     void quietly(
       read($, meter).then(now => {
@@ -326,7 +339,8 @@ async function pendingReadBack($: EngineInterface): Promise<Pending | undefined>
   return pending
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  ttlOption = typeof options.cacheTtlMinutes === 'number' ? options.cacheTtlMinutes : undefined
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     // A new process (a `/clear` raises no session.start): nothing is owed yet.
@@ -480,6 +494,12 @@ export const register: Register = on => {
       void quietly(refreshSetup($))
       turnActive = false
       lastTurnEndAt = await $.clock.now()
+      const spent = e.usage ? cacheCount(e.usage) : undefined
+      await update($, cache, prev => ({
+        session: spent ? addCount(prev?.session ?? { read: 0, written: 0, fresh: 0 }, spent) : (prev?.session ?? { read: 0, written: 0, fresh: 0 }),
+        turns: (prev?.turns ?? 0) + (spent ? 1 : 0),
+        lastResponseAt: spent ? lastTurnEndAt : prev?.lastResponseAt,
+      }))
       await quietly(noteTurnEnd($, e.reason === 'answer' ? e.answer : undefined))
     }
     return result
@@ -491,11 +511,12 @@ export const register: Register = on => {
 
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    // The terminal draws no images; every other surface takes the SVG card.
+    // The terminal draws no images; every other surface draws the bars as SVG.
     const Svg = e.surface !== 'terminal' && 'Svg' in els ? els.Svg : undefined
     const open = await read($, isOpen)
     const d = await read($, detail)
     const s = await read($, setup)
+    const c = await read($, cache)
     const now = await $.clock.now()
     const job = await read($, handoff)
     // A warning sign outranks the trend, never a handoff in progress.
@@ -515,11 +536,13 @@ export const register: Register = on => {
       left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'a forced compact' : 'full') : 'the handoff'}`
     const status = job ? PHASE_TEXT[job.phase] : undefined
     const note = windowNote(d?.window, m.window)
+    const limits = m.limits.map(l => limitRow(l, now))
     const fiveHour = m.limits.filter(l => l.kind === 'five_hour').map(l => limitRow(l, now))[0]
     const current = s?.alias ? parseAlias(s.alias) : undefined
     // The engine's own band (and any plugin's beneath) stays; this one goes under it.
     const below = await next(e)
     const effort = typeof s?.effort === 'string' ? s.effort : undefined
+    const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
 
     // The band's hotkeys arm from the terminal's focus chord; a desktop clicks.
     const toggle = (
@@ -557,28 +580,55 @@ export const register: Register = on => {
       ? status
       : [delta !== undefined ? `${signed(delta)} last turn` : undefined, leftText, note].filter(Boolean).join(' · ')
     const zone = zoneName(m.tokens, mk)
+    // The zone as a colored shape and a plain word: the word carries the
+    // meaning, so it keeps the text color's contrast in every theme.
+    const glyph = <Text color={color}>{zoneGlyph(zone)}</Text>
 
-    // Two quiet lines. Where the surface draws images: a thin strip of bars
-    // (context, then each rate limit), and under it the zone and trend with
-    // Handoff and Details at the right. In the terminal, one text row.
+    // Two quiet lines. Where the surface draws images: the figures as text with
+    // a thin bar each (context, then each rate limit), and under them the zone
+    // and trend with Handoff and Details at the right. In the terminal, one row.
     const headline = Svg ? (
       <Box flexDirection="column">
-        <Svg
-          key="card"
-          alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
-          source={stripSvg({
-            percent: m.percent,
-            tokens: m.tokens,
-            window: m.window,
-            marks: mk,
-            limits: m.limits.map(l => limitRow(l, now)),
-          })}
-        />
+        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap">
+          <Text>
+            <Text bold>{compact(m.tokens)}</Text>
+            {` / ${compact(m.window)}`}
+          </Text>
+          <Svg
+            key="card"
+            alt={`Context ${m.percent}% full, ${compact(m.tokens)} of ${compact(m.window)} tokens`}
+            source={barSvg({
+              ratio: m.tokens / m.window,
+              tone: toneOf(color),
+              width: 260,
+              ticks: [mk.fading / m.window, mk.dumb / m.window],
+            })}
+          />
+          <Text bold>{`${m.percent}%`}</Text>
+          {limits.slice(0, 2).map(l => (
+            <Box key={`limit-${l.name}`} flexDirection="row" alignItems="center" gap={1}>
+              <Text>{l.name}</Text>
+              <Svg
+                alt={`${l.name} limit ${Math.round(l.percent)}% used`}
+                source={barSvg({ ratio: l.percent / 100, tone: toneOf(level(l.percent)), width: 64 })}
+              />
+              <Text>
+                {`${Math.round(l.percent)}%`}
+                <Text dimColor>{l.reset ? ` · ${l.reset === 'just now' ? 'reset' : l.reset.replace(/^in /, '')}` : ''}</Text>
+              </Text>
+            </Box>
+          ))}
+        </Box>
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
           <Text>
-            <Text color={color}>{`● ${zone.charAt(0).toUpperCase()}${zone.slice(1)}`}</Text>
+            {glyph}
+            {` ${cap(zone)}`}
             {sign ? (
-              <Text color="warning">{` · ⚠ ${sign.text}`}</Text>
+              <Text>
+                {' · '}
+                <Text color="warning">⚠</Text>
+                {` ${sign.text}`}
+              </Text>
             ) : (
               <Text dimColor>{trend ? ` · ${trend}` : ''}</Text>
             )}
@@ -596,16 +646,20 @@ export const register: Register = on => {
           <Text color={color}>{gauge(m.tokens, m.window, wide ? 24 : 12).filled}</Text>
           <Text dimColor>{gauge(m.tokens, m.window, wide ? 24 : 12).empty}</Text>
         </Text>
-        <Text bold color={color}>
-          {m.percent}%
-        </Text>
-        <Text color={color}>{zone}</Text>
+        <Text bold>{m.percent}%</Text>
+        {glyph}
+        <Text>{zone}</Text>
         <Text dimColor>
           {compact(m.tokens)}/{compact(m.window)}
           {trend ? ` · ${trend}` : ''}
           {fiveHour ? ` · 5h ${Math.round(fiveHour.percent)}%` : ''}
         </Text>
-        {sign ? <Text color="warning">{`⚠ ${sign.text}`}</Text> : null}
+        {sign ? (
+          <Text>
+            <Text color="warning">⚠</Text>
+            {` ${sign.text}`}
+          </Text>
+        ) : null}
         {handoffButton}
       </Box>
     )
@@ -619,23 +673,28 @@ export const register: Register = on => {
       )
     }
 
-    const options = s?.options ?? []
-    const label = (text: string) => (
-      <Box width={10}>
-        <Text dimColor>{text}</Text>
-      </Box>
-    )
-    // One fact per line: its label, the figure that matters, then dim context.
-    const fact = (name: string, lead: string, rest = '', truncate = false) => (
-      <Box key={`fact-${name}`} flexDirection="row">
-        {label(name)}
-        <Text {...(truncate ? { wrap: 'truncate' as const } : {})}>
+    // Details: titled sections of rows. A row is a label in a fixed column,
+    // the figure that matters, then dim context. Nothing is cut: a long row wraps.
+    const LABEL = 14
+    const row = (name: string, lead: string, rest = '') => (
+      <Box key={`row-${name}`} flexDirection="row" gap={1}>
+        <Box width={LABEL}>
+          <Text>{name}</Text>
+        </Box>
+        <Text>
           {lead}
           <Text dimColor>{rest}</Text>
         </Text>
       </Box>
     )
-    const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
+    const section = (title: string, rows: unknown[]) => (
+      <Box key={`section-${title}`} flexDirection="column">
+        <Text bold>{title}</Text>
+        {rows}
+      </Box>
+    )
+
+    const options = s?.options ?? []
     // The session's settings on one row, as words: the current pick is a
     // framed button, the rest bare and dim.
     const pick = (key: string, text: string, isOn: boolean, onPress: () => unknown) => (
@@ -645,7 +704,7 @@ export const register: Register = on => {
       <Box flexDirection="row" gap={3} flexWrap="wrap" alignItems="center">
         {options.length ? (
           <Box flexDirection="row" gap={1} alignItems="center">
-            {label('Model')}
+            <Text>Model</Text>
             {families(options).map(f =>
               // The 1M variant wherever a family has one; Haiku has none and stays 200k.
               pick(`model-${f}`, cap(f), current?.family === f, () =>
@@ -655,108 +714,116 @@ export const register: Register = on => {
           </Box>
         ) : null}
         <Box flexDirection="row" gap={1} alignItems="center">
-          {label('Effort')}
+          <Text>Effort</Text>
           {EFFORTS.map(choice => pick(`effort-${choice}`, choice, effort === choice, () => runCommand($, 'effort', choice)))}
         </Box>
       </Box>
     )
 
+    // One row per part of the window: its name, tokens, share, and a bar whose
+    // length is the share. Reserved space is hatched and free space an outline,
+    // so no part is told apart by hue.
     const parts = d ? segments(d.categories, m.window) : []
-    // An image where the surface draws one; in the terminal, a row per part.
     const breakdown =
-      d === null ? (
-        <Text dimColor>Counting…</Text>
-      ) : Svg ? (
-        <Svg
-          key="breakdown"
-          alt={parts.map(p => `${p.name} ${compact(p.tokens)}`).join(', ')}
-          source={breakdownSvg(parts, m.window)}
-        />
-      ) : (
-        <Box flexDirection="column">
-          {parts.map(p => (
-            <Box key={`cat-${p.name}`} flexDirection="row" gap={1}>
-              <Box width={22}>
-                <Text dimColor={p.kind !== 'used'} wrap="truncate">
-                  {p.name}
-                </Text>
+      d === null
+        ? [<Text key="counting">Counting…</Text>]
+        : parts.map(p => {
+            const share = Math.round((p.tokens / m.window) * 100)
+            return (
+              <Box key={`cat-${p.name}`} flexDirection="row" gap={1} alignItems="center">
+                <Box width={22}>
+                  <Text>{p.name}</Text>
+                </Box>
+                <Box width={6} justifyContent="flex-end">
+                  <Text>{compact(p.tokens)}</Text>
+                </Box>
+                <Box width={5} justifyContent="flex-end">
+                  <Text>{`${share}%`}</Text>
+                </Box>
+                {Svg ? (
+                  <Svg
+                    alt={`${p.name} ${share}%`}
+                    source={barSvg({
+                      ratio: p.tokens / m.window,
+                      tone: 'neutral',
+                      width: 240,
+                      style: p.kind === 'used' ? 'solid' : p.kind === 'buffer' ? 'hatched' : 'hollow',
+                    })}
+                  />
+                ) : (
+                  <Text dimColor={p.kind !== 'used'}>
+                    {p.kind === 'free' ? '' : gauge(p.tokens, m.window, wide ? 20 : 10).filled}
+                  </Text>
+                )}
               </Box>
-              <Box width={6} justifyContent="flex-end">
-                <Text>{compact(p.tokens)}</Text>
-              </Box>
-              <Text color={p.kind === 'used' ? p.color : undefined} dimColor={p.kind !== 'used'}>
-                {p.kind === 'free' ? '' : gauge(p.tokens, m.window, wide ? 20 : 10).filled}
-              </Text>
-              <Text dimColor>{Math.round((p.tokens / m.window) * 100)}%</Text>
-            </Box>
-          ))}
-        </Box>
-      )
+            )
+          })
 
     const fixed = d ? baseline(d.categories) : 0
-    const limitText = m.limits.map(l => {
-      const r = limitRow(l, now)
-      return { lead: `${r.name} ${Math.round(r.percent)}%`, rest: r.reset ? ` ${r.reset === 'just now' ? 'reset just now' : `resets ${r.reset}`}` : '' }
-    })
     const memory = d?.memoryFiles ?? []
+    const ttl = cacheTtl(m.limits, ttlOption)
+    const lastRequest = d?.lastRequest ? cacheLine(d.lastRequest) : undefined
+    const sessionCache = c && c.turns > 0 ? cacheLine(c.session) : undefined
+    const life = lifetimeText(ttl)
+    const state = cacheStateText(ttl, c?.lastResponseAt, now, m.tokens, e.props.isWorking)
     return (
       <Box flexDirection="column">
         {below}
         {headline}
         <Box flexDirection="column" marginTop={1} gap={1}>
           {controls}
-          {breakdown}
-          <Box flexDirection="column">
-            {fact(
-              'Zone',
-              cap(zone),
-              ` · ${zoneHint(zone, mk)}`,
-            )}
-            {fact(
-              'Signals',
-              sign ? sign.text : 'none',
-              ` · watching for corrections in a row, repeated failing calls, idle near cache expiry, and "done" past ${compact(mk.dumb)}`,
-              true,
-            )}
-            {fact(
+          {section('Context', [
+            row('Zone', cap(zone), ` · ${zoneHint(zone, mk)}`),
+            row(
               'Growth',
               growth !== undefined ? `avg ${signed(Math.round(growth))}/turn` : 'one turn so far',
               ` · handoff at ${compact(mk.dumb)}${autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}`,
-            )}
-            {limitText.length
-              ? fact(
-                  'Limits',
-                  limitText[0]!.lead,
-                  `${limitText[0]!.rest}${limitText
-                    .slice(1)
-                    .map(l => ` · ${l.lead}${l.rest}`)
-                    .join('')}`,
-                )
-              : null}
-            {fact(
-              'Cost',
-              m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'n/a',
-              d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}%` : '',
-            )}
-            {fixed > 0
-              ? fact(
+            ),
+            fixed > 0
+              ? row(
                   'Baseline',
                   compact(fixed),
                   ` on every turn${d && d.mcpTokens > 0 ? `, MCP tools ${compact(d.mcpTokens)} of it` : ''}`,
                 )
-              : null}
-            {memory.length
-              ? fact(
+              : null,
+            ...breakdown,
+            memory.length
+              ? row(
                   'Memory',
                   memory
                     .slice(0, 3)
                     .map(f => `${fileName(f.path)} ${compact(f.tokens)}`)
                     .join(' · '),
                   memory.length > 3 ? ` · +${memory.length - 3} more` : '',
-                  true,
                 )
-              : null}
-          </Box>
+              : null,
+          ])}
+          {section('Cache', [
+            lastRequest ? row('Last request', lastRequest.lead, lastRequest.rest) : null,
+            sessionCache ? row('This session', sessionCache.lead, sessionCache.rest) : null,
+            row('Lifetime', life.lead, life.rest),
+            row('State', cap(state.lead), state.rest),
+          ])}
+          {limits.length
+            ? section(
+                'Limits',
+                limits.map(l =>
+                  row(
+                    l.name,
+                    `${Math.round(l.percent)}%`,
+                    l.reset ? ` · ${l.reset === 'just now' ? 'reset just now' : `resets ${l.reset}`}` : '',
+                  ),
+                ),
+              )
+            : null}
+          {section('Session', [
+            m.usd !== undefined ? row('Cost', `$${m.usd.toFixed(2)}`) : null,
+            row(
+              'Signals',
+              sign ? sign.text : 'none',
+              sign ? '' : ` · watching corrections in a row, repeated failing calls, an idle cache, and "done" past ${compact(mk.dumb)}`,
+            ),
+          ])}
         </Box>
       </Box>
     )

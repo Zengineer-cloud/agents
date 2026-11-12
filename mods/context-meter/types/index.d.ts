@@ -21,11 +21,18 @@ export type Detail = {
   windowSource: string
   categories: Category[]
   autoCompactAt?: number
-  // Share of the last request's input served from the prompt cache, 0 to 100.
-  cacheHit?: number
+  // The last request's input, by what the prompt cache did with it.
+  lastRequest?: CacheCount
   memoryFiles: { path: string; tokens: number }[]
   mcpTokens: number
 }
+
+// Input tokens the prompt cache served, the ones written to it, and the rest.
+export type CacheCount = { read: number; written: number; fresh: number }
+
+// The prompt cache over this session's main-loop turns, and when the last
+// response came: an idle cache entry runs down from there.
+export type Cache = { session: CacheCount; turns: number; lastResponseAt?: number }
 
 // What the model and effort buttons show and set.
 export type Setup = {
@@ -63,6 +70,7 @@ declare module 'claude-code' {
       warned: number
       handoff: Handoff | null
       signal: Signal | null
+      cache: Cache | null
     }
   }
 }

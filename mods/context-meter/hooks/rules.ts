@@ -156,79 +156,71 @@ export function modelName(id: string): string {
   return `${cap(m[1]!)} ${version}`
 }
 
-// ── the desktop strip ─────────────────────────────────────────────────────────
+// ── bars ──────────────────────────────────────────────────────────────────────
 
-const COLORS = { success: '#2ea043', warning: '#d29922', error: '#f85149' } as const
-
-export type Strip = {
-  percent: number
-  tokens: number
-  window: number
-  // The session's marks; the window's own when absent.
-  marks?: Marks
-  limits: { name: string; percent: number; reset?: string }[]
-}
-
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-// The strip's grid, in viewBox units: one line, the context on the left and a
-// block per rate limit on the right. Drawn as an image at this size (its text
-// then matches the band's), scaled down when the slot is narrower.
-const STRIP = {
-  w: 880,
-  h: 26,
-  // Text baseline; the bars sit on the text's middle.
-  y: 18,
-  bar: { x: 104, w: 260, h: 4 },
-  percentX: 376,
-  // The hairline between the context and the limits.
-  ruleX: 436,
-  limits: { x: 456, step: 212, bar: 64 },
+// Every figure and name on the band is real text, which the surface sizes,
+// wraps and reads aloud. An image holds only a bar, so it has no text to blur
+// when scaled (WCAG 1.4.9). The bar colors keep 3:1 against light and dark
+// app backgrounds (WCAG 1.4.11); tests/rules.test.ts checks each one. A bar's
+// meaning never rests on its color: the zone has a word and a shape, and each
+// bar has its figure beside it.
+export const PALETTE = {
+  light: { ok: '#1a7f37', warn: '#9a6700', bad: '#cf222e', neutral: '#57606a', edge: '#6e7781' },
+  dark: { ok: '#3fb950', warn: '#d29922', bad: '#f85149', neutral: '#9198a1', edge: '#8b949e' },
 } as const
 
-// A reset as the strip shows it: "4h 58m", "Tue", "reset".
-const shortReset = (reset: string | undefined) =>
-  reset === undefined ? '' : reset === 'just now' ? 'reset' : reset.replace(/^in /, '')
+export type Tone = 'ok' | 'warn' | 'bad' | 'neutral'
 
-// One line of thin bars: the token figures, the context bar with ticks at the
-// quality marks, the percent, then each rate limit with its reset. The zone's
-// meaning and the full reset times live in Details. Colors follow light or dark.
-export function stripSvg(c: Strip): string {
-  const { w: W, h: H, y, bar, limits } = STRIP
-  const m = c.marks ?? marks(c.window)
-  const color = COLORS[contextLevel(c.tokens, m)]
-  const fill = Math.min(c.percent, 100) / 100
-  const barY = y - 7
-  const ticks = [m.fading, m.dumb].map(t => {
-    const x = bar.x + (bar.w * Math.min(t, c.window)) / c.window
-    return `<line x1="${x.toFixed(1)}" y1="${barY - 3}" x2="${x.toFixed(1)}" y2="${barY + bar.h + 3}" stroke-width="1" class="tick"/>`
+const TONES = { success: 'ok', warning: 'warn', error: 'bad' } as const
+export const toneOf = (l: 'success' | 'warning' | 'error'): Tone => TONES[l]
+
+// A shape per zone, so the zone reads without its color.
+const GLYPHS: Record<Zone, string> = { sharp: '●', 'quality fading': '▲', 'dumb zone': '■' }
+export const zoneGlyph = (zone: Zone) => GLYPHS[zone]
+
+export type Bar = {
+  // 0 to 1; a value above 0 always draws a sliver.
+  ratio: number
+  tone: Tone
+  width: number
+  // Marks along the bar, each 0 to 1 (the quality marks on the context bar).
+  ticks?: readonly number[]
+  // solid: a filled bar. hatched: reserved space. hollow: free space, an outline.
+  style?: 'solid' | 'hatched' | 'hollow'
+}
+
+const BAR = { h: 12, y: 3, track: 6 } as const
+
+// One thin bar on an outlined track. No text: the caller draws the figures.
+export function barSvg(b: Bar): string {
+  const W = b.width
+  const { h: H, y, track } = BAR
+  const ratio = Math.max(0, Math.min(b.ratio, 1))
+  const filled = ratio > 0 ? Math.max(2, (W - 2) * ratio) : 0
+  const style = b.style ?? 'solid'
+  const fill =
+    style === 'hollow' || filled === 0
+      ? ''
+      : `<rect x="1" y="${y}" width="${filled.toFixed(1)}" height="${track}" rx="2" ${
+          style === 'hatched' ? 'fill="url(#hatch)"' : `class="${b.tone}"`
+        }/>`
+  const ticks = (b.ticks ?? []).map(t => {
+    const x = 1 + (W - 2) * Math.max(0, Math.min(t, 1))
+    return `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${H}" stroke-width="1.5" class="tick"/>`
   })
-  const blocks = c.limits.slice(0, 2).map((l, i) => {
-    const x = limits.x + i * limits.step
-    const lc = COLORS[level(l.percent)]
-    return (
-      `<text x="${x}" y="${y}" font-size="14" class="m">${esc(l.name)}</text>` +
-      `<rect x="${x + 26}" y="${barY}" width="${limits.bar}" height="${bar.h}" rx="2" class="track"/>` +
-      `<rect x="${x + 26}" y="${barY}" width="${Math.max(2, (limits.bar * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="${bar.h}" rx="2" fill="${lc}"/>` +
-      `<text x="${x + 100}" y="${y}" font-size="14" font-weight="600" class="t">${Math.round(l.percent)}%</text>` +
-      `<text x="${x + 144}" y="${y}" font-size="14" class="m">${esc(fit(shortReset(l.reset), limits.step - 150, 14))}</text>`
-    )
-  })
+  const css = (p: (typeof PALETTE)['light' | 'dark']) =>
+    `.ok{fill:${p.ok}}.warn{fill:${p.warn}}.bad{fill:${p.bad}}.neutral{fill:${p.neutral}}` +
+    `.hatch{fill:${p.neutral}}.track{fill:none;stroke:${p.edge}}.tick{stroke:${p.edge}}`
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.tick{stroke:#59636e}.rule{stroke:#d1d9e0}` +
-    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.tick{stroke:#9198a1}.rule{stroke:#3d444d}}` +
-    `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
-    `<text x="0" y="${y}" font-size="16" font-weight="600" class="t">${esc(compact(c.tokens))}` +
-    `<tspan class="m" font-size="14" font-weight="400"> / ${esc(compact(c.window))}</tspan></text>` +
-    `<rect x="${bar.x}" y="${barY}" width="${bar.w}" height="${bar.h}" rx="2" class="track"/>` +
-    `<rect x="${bar.x}" y="${barY}" width="${c.tokens > 0 ? Math.max(2, bar.w * fill).toFixed(1) : 0}" height="${bar.h}" rx="2" fill="${color}"/>` +
-    ticks.join('') +
-    `<text x="${STRIP.percentX}" y="${y}" font-size="14" font-weight="600" fill="${color}">${c.percent}%</text>` +
-    (blocks.length
-      ? `<line x1="${STRIP.ruleX}" y1="6" x2="${STRIP.ruleX}" y2="${H - 4}" stroke-width="1" class="rule"/>`
+    `<style>${css(PALETTE.light)}@media (prefers-color-scheme: dark){${css(PALETTE.dark)}}</style>` +
+    (style === 'hatched'
+      ? `<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">` +
+        `<rect width="2" height="4" class="hatch"/></pattern></defs>`
       : '') +
-    blocks.join('') +
+    fill +
+    `<rect x="0.5" y="${y - 0.5}" width="${W - 1}" height="${track + 1}" rx="2.5" stroke-width="1" class="track"/>` +
+    ticks.join('') +
     `</svg>`
   )
 }
@@ -252,72 +244,74 @@ export function segments(categories: readonly Segment[], window: number, most = 
   ]
 }
 
-// The used segments' colors, by rank: the engine's colors are theme keys,
-// which an image cannot read. Other is always gray.
-const SEGMENT_COLORS = ['#7f77dd', '#1d9e75', '#d85a30', '#378add', '#ba7517'] as const
-const OTHER_COLOR = '#888780'
+// ── the prompt cache ──────────────────────────────────────────────────────────
 
-const LEGEND = { w: 880, cols: 4, row: 22, barH: 8, gap: 12 } as const
+// A request's input, by what the prompt cache did with it: served from the
+// cache (cheap), written to it (a little dearer than plain input), or neither.
+export type CacheCount = { read: number; written: number; fresh: number }
 
-// One stacked bar of the whole window (used segments, the buffer hatched at
-// the end, free space as the bare track) and a legend under it, four to a row.
-export function breakdownSvg(parts: readonly Segment[], window: number): string {
-  const { w: W, cols, row, barH, gap } = LEGEND
-  const colW = W / cols
-  const used = parts.filter(p => p.kind === 'used')
-  const colorOf = (p: Segment) =>
-    p.name === 'Other' ? OTHER_COLOR : SEGMENT_COLORS[used.indexOf(p) % SEGMENT_COLORS.length]!
-  const width = (t: number) => (W * Math.min(t, window)) / window
-  let x = 0
-  const fills = used.map(p => {
-    const r = `<rect x="${x.toFixed(1)}" y="0" width="${width(p.tokens).toFixed(1)}" height="${barH}" fill="${colorOf(p)}"/>`
-    x += width(p.tokens)
-    return r
-  })
-  let end = W
-  const hatched = parts
-    .filter(p => p.kind === 'buffer')
-    .map(p => {
-      end -= width(p.tokens)
-      return `<rect x="${end.toFixed(1)}" y="0" width="${width(p.tokens).toFixed(1)}" height="${barH}" fill="url(#hatch)"/>`
-    })
-  const items = parts.map((p, i) => {
-    const lx = (i % cols) * colW
-    const ly = barH + gap + Math.floor(i / cols) * row + 14
-    const swatch =
-      p.kind === 'used'
-        ? `<rect x="${lx}" y="${ly - 10}" width="9" height="9" rx="2" fill="${colorOf(p)}"/>`
-        : p.kind === 'buffer'
-          ? `<rect x="${lx}" y="${ly - 10}" width="9" height="9" rx="2" fill="url(#hatch)"/>`
-          : `<rect x="${lx + 0.5}" y="${ly - 9.5}" width="8" height="8" rx="2" fill="none" class="edge"/>`
-    const figure = compact(p.tokens)
-    const name = fit(p.name, colW - 28 - figure.length * 8, 14)
-    return (
-      swatch +
-      `<text x="${lx + 16}" y="${ly}" font-size="14" class="${p.kind === 'used' ? 't' : 'm'}">${esc(name)}` +
-      `<tspan class="m"> ${esc(figure)}</tspan></text>`
-    )
-  })
-  const H = barH + gap + Math.ceil(parts.length / cols) * row
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.edge{stroke:#59636e}.hatch{fill:#8c959f}` +
-    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.edge{stroke:#9198a1}.hatch{fill:#6e7681}}` +
-    `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
-    `<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)">` +
-    `<rect width="2" height="4" class="hatch"/></pattern>` +
-    `<clipPath id="bar"><rect x="0" y="0" width="${W}" height="${barH}" rx="4"/></clipPath></defs>` +
-    `<g clip-path="url(#bar)"><rect x="0" y="0" width="${W}" height="${barH}" class="track"/>${fills.join('')}${hatched.join('')}</g>` +
-    items.join('') +
-    `</svg>`
-  )
+export const cacheCount = (u: {
+  input_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}): CacheCount => ({ read: u.cache_read_input_tokens, written: u.cache_creation_input_tokens, fresh: u.input_tokens })
+
+export const addCount = (a: CacheCount, b: CacheCount): CacheCount => ({
+  read: a.read + b.read,
+  written: a.written + b.written,
+  fresh: a.fresh + b.fresh,
+})
+
+// The share of the input the cache served, 0 to 100; undefined with no input.
+export function cacheShare(c: CacheCount): number | undefined {
+  const input = c.read + c.written + c.fresh
+  return input > 0 ? Math.round((c.read / input) * 100) : undefined
 }
 
-// Cuts a line to fit its column, by an average glyph width for the font size
-// (a UI sans at mixed case and digits runs near half the size per glyph).
-export function fit(text: string, widthPx: number, fontSize: number): string {
-  const max = Math.floor(widthPx / (fontSize * 0.5))
-  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+export function cacheLine(c: CacheCount): { lead: string; rest: string } | undefined {
+  const share = cacheShare(c)
+  if (share === undefined) return undefined
+  return {
+    lead: `${share}% from cache`,
+    rest: ` · ${compact(c.read)} read · ${compact(c.written)} written · ${compact(c.fresh)} new`,
+  }
+}
+
+// How long an idle cache entry lives. The engine does not report it, so it is
+// read off the plan: a subscription seat (it has 5h or 7d limits) keeps an
+// entry about an hour, API and cloud-provider billing five minutes. The
+// `cacheTtlMinutes` option overrides the guess.
+export type CacheTtl = { ms: number; source: 'option' | 'plan' | 'default' }
+
+export function cacheTtl(limits: readonly { kind: string }[], optionMinutes?: number): CacheTtl {
+  if (optionMinutes !== undefined && optionMinutes > 0) return { ms: optionMinutes * 60_000, source: 'option' }
+  const isSeat = limits.some(l => l.kind === 'five_hour' || l.kind === 'seven_day')
+  return isSeat ? { ms: 60 * 60_000, source: 'plan' } : { ms: 5 * 60_000, source: 'default' }
+}
+
+const TTL_SOURCE = { option: 'set in options', plan: 'subscription plan', default: 'API default' } as const
+
+export function lifetimeText(ttl: CacheTtl): { lead: string; rest: string } {
+  const mins = Math.round(ttl.ms / 60_000)
+  const lead = mins === 60 ? '1 hour' : mins % 60 === 0 ? `${mins / 60} hours` : `${mins} minutes`
+  return { lead, rest: ` · ${TTL_SOURCE[ttl.source]}` }
+}
+
+// Whether the next message still finds the cache. While a turn runs each
+// request renews it; idle, it runs down from the last response.
+export function cacheStateText(
+  ttl: CacheTtl,
+  lastResponseAt: number | undefined,
+  now: number,
+  tokens: number,
+  isWorking: boolean,
+): { lead: string; rest: string } {
+  if (lastResponseAt === undefined) return { lead: 'no response yet', rest: '' }
+  if (isWorking) return { lead: 'warm', rest: ' · renewed by each request' }
+  const left = ttl.ms - (now - lastResponseAt)
+  if (left <= 0) return { lead: 'expired', rest: ` · the next message re-reads ${compact(tokens)} at full price` }
+  const mins = Math.floor(left / 60_000)
+  return { lead: 'warm', rest: mins < 1 ? ' · under a minute left if idle' : ` · about ${mins}m left if idle` }
 }
 
 // The highest stage newly reached (1 fading, 2 dumb zone), or undefined. A drop
