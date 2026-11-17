@@ -5,6 +5,12 @@
   },
   "permissions": {
     "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:developer.mozilla.org)"
+    ],
     "deny": [
       "Read(.env)",
       "Read(.env.*)",
@@ -47,6 +53,14 @@
       "PowerShell(git clean *)",
       "Bash(gh pr merge *)",
       "PowerShell(gh pr merge *)",
+      "Bash(curl *)",
+      "PowerShell(curl *)",
+      "Bash(wget *)",
+      "PowerShell(wget *)",
+      "PowerShell(Invoke-WebRequest *)",
+      "PowerShell(iwr *)",
+      "PowerShell(Invoke-RestMethod *)",
+      "PowerShell(irm *)",
       "Bash(dangerouslyDisableSandbox:true)",
       "Edit(.github/workflows/**)"
     ]

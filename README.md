@@ -85,14 +85,15 @@ paths denied in `settings.json` apply inside the sandbox too.
 | :- | :- |
 | `deny` rules | Secrets are never read or written: `.env*`, `.dev.vars*`, key files, `~/.ssh`, `~/.gnupg`, cloud credentials (AWS, GCP, Azure, Kubernetes), tool and registry credentials (GitHub CLI, Docker, npm, PyPI, RubyGems, `~/.git-credentials`, `~/.netrc`). `.env.example` stays usable. Lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `*.lock`, `*.lockb`, `go.sum`) are not read either: they are large, and they only change through the package manager. |
 | File search | `settings.json` sets `CLAUDE_CODE_GLOB_NO_IGNORE=false`, so Claude's file search respects `.gitignore`. By default it also lists ignored files such as `node_modules` and build output. |
-| `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
+| `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, shell downloads (`curl`, `wget`, `Invoke-WebRequest`, `Invoke-RestMethod`), and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
+| Web allowlist | `allow` holds `WebFetch(domain:...)` rules for vendor documentation hosts. Claude reads those without asking. A fetch from any other host prompts, and so does a redirect to another host. Add the docs hosts for your stack, for example `docs.python.org` or `nodejs.org`. List hosts the vendor writes, not hosts anyone can post to (`docs.github.com`, not `github.com`). |
 | Built into Claude Code | Writes to `.claude/`, `.git/`, `.mcp.json`, and shell startup files are never auto-approved. `rm -rf` on the project, home, or root is always stopped. `settings.json` also disables bypass-permissions mode. |
 | Checks hook | Your formatter and tests run without anyone remembering to. |
 | `AGENTS.md` | Conventions and intent. It shapes what agents try; it enforces nothing. |
 
-There are no `allow` rules: nothing is pre-approved. Claude Code already runs
-read-only commands without asking, and saves your own "don't ask again" choices to
-`.claude/settings.local.json`.
+The web allowlist is the only `allow` list: no command or edit is pre-approved.
+Claude Code already runs read-only commands without asking, and saves your own
+"don't ask again" choices to `.claude/settings.local.json`.
 
 No permission mode is pinned either. Use Manual, auto, or plan as you prefer; the
 deny and ask rules hold in all of them.
@@ -106,6 +107,11 @@ deny and ask rules hold in all of them.
 - **Read rules don't see inside scripts.** They cover Claude's file tools and
   common shell readers such as `cat`. A script that opens a file itself is only
   stopped by the OS sandbox.
+- **The web allowlist covers WebFetch only.** Web search can't be limited by
+  host, and a download inside a script or `sh -c` gets past the `curl` rules.
+  The sandbox's `network.allowedDomains` is the limit that holds for the shell.
+  A trusted host can still serve text that tries to steer the agent, so the
+  "data, not instructions" rule in `AGENTS.md` still applies.
 - **The sandbox doesn't run on native Windows.** Use WSL2 or a dev container
   there if you need real isolation.
 - **`*.pem` and `*.key` are denied wholesale.** Delete those two lines from
