@@ -42,7 +42,9 @@ median time to merge falling from 11.2 h to 3.1 h over 17,200 PRs.
 | EARS acceptance criteria and `[NEEDS CLARIFICATION]` markers | `requirements.md` template |
 | Always / Ask first / Never boundaries | `requirements.md` Boundaries |
 | Human gate on the plan, not only the diff | spec approval step |
-| Red before green: confirm the test fails first | `test-author` agent |
+| Interview until shared understanding: decisions as a tree, a recommended answer with each question ([grilling](https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md), checked 2026-11-17; it asks in rounds, the factory asks one at a time) | `grill` skill, `expectations.md` |
+| Red before green: confirm the test fails first | `test-author` agent, red-green-refactor per task in build |
+| Test at the level that proves the behavior; query the UI by role and label | plan Test strategy and Validation, `test-author`, `verifier` |
 | Tests the coder cannot quietly change | `tests.lock` and the test-lock hook |
 | Separate, skeptical, read-only evaluator | `verifier`, review workflow skeptics |
 | Enforce with hooks, not prose | scaffold `checks.mjs`, test-lock hook |

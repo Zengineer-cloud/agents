@@ -8,7 +8,7 @@ preview:
 
 # Status: <!-- feature title -->
 
-<!-- stage is one of: spec, approved, build, review, ship, done, parked.
+<!-- stage is one of: grill, spec, approved, build, review, ship, done, parked.
      run is attended or unattended (see "Run unattended" in the factory skill).
      The factory skills read it to pick the next step. Keep this file short:
      it is the first thing a fresh session reads. -->

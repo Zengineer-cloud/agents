@@ -141,8 +141,9 @@ Setup, the full behaviour of each, and how to work on them:
 ## Software factory
 
 `factory/` is a Claude Code plugin that takes one feature from your
-description to production: `/factory:spec` interviews you and writes a
-testable spec, `/factory:build` writes failing tests first and then the code,
+description to production: `/factory:grill` interviews you about what you
+expect, `/factory:spec` writes a testable spec with backend and frontend
+validation, `/factory:build` writes failing tests first and then the code,
 `/factory:review` runs independent reviewers and refutes weak findings, and
 `/factory:ship` opens the PR, checks CI and the preview, and records lessons.
 You approve the spec, merge, and approve production. It builds on this
