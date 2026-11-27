@@ -129,8 +129,41 @@ The web allowlist is the only `allow` list: no command or edit is pre-approved.
 Claude Code already runs read-only commands without asking, and saves your own
 "don't ask again" choices to `.claude/settings.local.json`.
 
-No permission mode is pinned either. Use Manual, auto, or plan as you prefer; the
-deny and ask rules hold in all of them.
+No permission mode is pinned either. Since v2.1.283, interactive terminal and
+VS Code sessions start in auto mode, and `claude -p` starts in default mode. The
+deny and ask rules hold in every mode, and they are checked before auto mode's
+classifier sees the action.
+
+### Tell auto mode what you trust
+
+Auto mode trusts the current folder and its repo. A push to a separate deploy
+repo, or a write to your staging bucket, can still stop and ask. To fix that,
+describe your environment in plain English in `~/.claude/settings.json`. The
+classifier ignores `autoMode` in a project's `.claude/settings.json`, so a repo
+can't grant itself trust.
+
+```json
+{
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Deploys go through github.com/EXAMPLE-ORG/deploy, which we own"
+    ],
+    "soft_deny": ["$defaults", "Never run database migrations outside the migrations CLI"]
+  }
+}
+```
+
+Keep `"$defaults"` in each list, or you replace the built-in rules.
+
+### When to add a rule
+
+Ask one question: if Claude got this wrong once, could you take it back? A bad
+code change can be reverted, so leave it to the model and the checks. A secret
+read into the transcript, discarded uncommitted work, or a pushed commit can't,
+so those get a `deny` or `ask` rule. Then ask where the action happens. A rule
+stops a command that names the file. Only the OS sandbox, or a machine without
+the secret on it, stops a script that opens the file while it runs.
 
 ## Limits worth knowing
 
