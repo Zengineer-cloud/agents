@@ -90,11 +90,11 @@ const fileOnly = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
 // ── idle ──────────────────────────────────────────────────────────────────────
 
-// The prompt cache lives about an hour on a subscription (five minutes on an
-// API key). Past it, the next message re-reads the whole context uncached.
-export const CACHE_TTL_MS = 60 * 60_000
-// Warn this long before the cache runs out.
+// Past the prompt cache's lifetime (`cacheTtl` in rules.ts), the next message
+// re-reads the whole context uncached. Warn this long before it runs out.
 export const IDLE_WARN_BEFORE_MS = 5 * 60_000
+// A lifetime this short runs out in every pause; a warning each time is noise.
+export const IDLE_WARN_MIN_TTL_MS = 15 * 60_000
 // Below this a re-read is cheap: Anthropic's own idle compaction starts here.
 export const IDLE_TOKENS = 200_000
 

@@ -3,8 +3,15 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   aliasFor,
   aliasOf,
+  PALETTE,
+  addCount,
   averageGrowth,
-  fit,
+  barSvg,
+  cacheCount,
+  cacheLine,
+  cacheShare,
+  cacheStateText,
+  cacheTtl,
   compact,
   compactInstructions,
   contextLevel,
@@ -14,6 +21,7 @@ import {
   handoffPath,
   handoffPrompt,
   lastDelta,
+  lifetimeText,
   marks,
   modelName,
   parseAlias,
@@ -23,11 +31,10 @@ import {
   signed,
   sparkline,
   stageOf,
-  stripSvg,
   segments,
-  breakdownSvg,
   turnsLeft,
   warning,
+  zoneGlyph,
   zoneName,
 } from '../hooks/rules'
 
@@ -58,33 +65,51 @@ describe('model and effort', () => {
   })
 })
 
-test('the strip is one thin SVG line: figures, bars and short resets', () => {
-  const strip = {
-    percent: 52,
-    tokens: 104_000,
-    window: 200_000,
-    limits: [
-      { name: '5h', percent: 31, reset: 'in 2h 10m' },
-      { name: '7d<', percent: 80, reset: 'just now' },
-    ],
-  }
-  const svg = stripSvg(strip)
+test('a bar is an image with no text: a fill, an outlined track and ticks', () => {
+  const svg = barSvg({ ratio: 0.52, tone: 'warn', width: 260, ticks: [0.35, 0.5] })
   expect(svg.startsWith('<svg')).toBe(true)
-  expect(svg).toContain('height="26"')
-  expect(svg).toContain('>52%<')
-  expect(svg).toContain('104k')
-  // Short resets in the line; the full sentences live in Details.
-  expect(svg).toContain('>2h 10m<')
-  expect(svg).toContain('>reset<')
-  expect(svg).toContain('7d&lt;')
+  expect(svg).toContain('width="260" height="12"')
+  // No text in the image: the figures are real text beside it.
+  expect(svg).not.toContain('<text')
   expect(svg).not.toContain('<title>')
-  expect(svg).not.toContain('<circle')
-  expect(svg.length).toBeLessThan(131072)
-  // No limits: no hairline either.
-  expect(stripSvg({ ...strip, limits: [] })).not.toContain('class="rule"')
+  expect(svg).toContain('class="warn"')
+  expect(svg).toContain('class="track"')
+  expect(svg.split('class="tick"').length - 1).toBe(2)
+  // Both color schemes are in the image.
+  expect(svg).toContain('prefers-color-scheme: dark')
+  // Reserved space is hatched, free space an outline with no fill.
+  expect(barSvg({ ratio: 0.2, tone: 'neutral', width: 240, style: 'hatched' })).toContain('fill="url(#hatch)"')
+  expect(barSvg({ ratio: 0.7, tone: 'neutral', width: 240, style: 'hollow' })).not.toContain('class="neutral"')
+  // An empty bar draws no fill; a sliver still shows.
+  expect(barSvg({ ratio: 0, tone: 'ok', width: 64 })).not.toContain('class="ok"')
+  expect(barSvg({ ratio: 0.001, tone: 'ok', width: 64 })).toContain('width="2.0"')
 })
 
-test('the breakdown sums parts under 1% as Other and draws one stacked bar with a legend', () => {
+test('every bar color keeps 3:1 against light and dark app backgrounds (WCAG 1.4.11)', () => {
+  const channel = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+  const luminance = (hex: string) => {
+    const [red, green, blue] = [1, 3, 5].map(i => channel(parseInt(hex.slice(i, i + 2), 16) / 255))
+    return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!
+  }
+  const contrast = (x: string, y: string) => {
+    const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p)
+    return (hi! + 0.05) / (lo! + 0.05)
+  }
+  const backgrounds = {
+    light: ['#ffffff', '#faf9f5', '#f0eee6'],
+    dark: ['#0d1117', '#1f1e1d', '#262624', '#30302e'],
+  }
+  for (const scheme of ['light', 'dark'] as const)
+    for (const color of Object.values(PALETTE[scheme]))
+      for (const background of backgrounds[scheme]) expect(contrast(color, background)).toBeGreaterThanOrEqual(3)
+})
+
+test('each zone has its own shape, so it reads without color', () => {
+  const shapes = (['sharp', 'quality fading', 'dumb zone'] as const).map(zoneGlyph)
+  expect(new Set(shapes).size).toBe(3)
+})
+
+test('the breakdown sums parts under 1% as Other, then the buffer and the free space', () => {
   const cats = [
     { name: 'System tools', tokens: 36_000, color: 'inactive', kind: 'used' as const },
     { name: 'Messages', tokens: 94_000, color: 'permission', kind: 'used' as const },
@@ -93,27 +118,50 @@ test('the breakdown sums parts under 1% as Other and draws one stacked bar with 
     { name: 'Free space', tokens: 774_000, color: 'inactive', kind: 'free' as const },
     { name: 'Autocompact buffer', tokens: 33_000, color: 'inactive', kind: 'buffer' as const },
   ]
-  const parts = segments(cats, 1_000_000)
-  expect(parts.map(p => `${p.name} ${p.tokens}`)).toEqual([
+  expect(segments(cats, 1_000_000).map(p => `${p.name} ${p.tokens}`)).toEqual([
     'Messages 94000',
     'System tools 36000',
     'Other 2245',
     'Autocompact buffer 33000',
     'Free space 774000',
   ])
-  const svg = breakdownSvg(parts, 1_000_000)
-  expect(svg.startsWith('<svg')).toBe(true)
-  expect(svg).toContain('Messages<tspan class="m"> 94k</tspan>')
-  expect(svg).toContain('fill="url(#hatch)"')
-  // Five parts, four to a row: two legend rows.
-  expect(svg).toContain('height="64"')
-  expect(svg).not.toContain('Custom agents')
 })
 
-test('fit cuts a line to its column by glyph width', () => {
-  expect(fit('short', 200, 13)).toBe('short')
-  expect(fit('5h limit 50% · resets in 3h 31m', 204, 12)).toBe('5h limit 50% · resets in 3h 31m')
-  expect(fit('abcdefghijklmnopqrstuvwxyz', 65, 13)).toBe('abcdefghi…')
+describe('the prompt cache', () => {
+  const request = { input_tokens: 9_000, output_tokens: 500, cache_read_input_tokens: 180_000, cache_creation_input_tokens: 3_000 }
+  test('a request splits into read, written and new input', () => {
+    expect(cacheCount(request)).toEqual({ read: 180_000, written: 3_000, fresh: 9_000 })
+    expect(cacheShare(cacheCount(request))).toBe(94)
+    expect(cacheLine(cacheCount(request))).toEqual({ lead: '94% from cache', rest: ' · 180k read · 3k written · 9k new' })
+  })
+  test('counts add up over turns, and no input gives no line', () => {
+    const twice = addCount(cacheCount(request), cacheCount(request))
+    expect(twice).toEqual({ read: 360_000, written: 6_000, fresh: 18_000 })
+    expect(cacheLine({ read: 0, written: 0, fresh: 0 })).toBeUndefined()
+  })
+  test('the lifetime is an hour on a subscription seat, five minutes elsewhere, and the option wins', () => {
+    expect(cacheTtl([{ kind: 'five_hour' }])).toEqual({ ms: 3_600_000, source: 'plan' })
+    expect(cacheTtl([{ kind: 'spend_limit' }])).toEqual({ ms: 300_000, source: 'default' })
+    expect(cacheTtl([])).toEqual({ ms: 300_000, source: 'default' })
+    expect(cacheTtl([{ kind: 'five_hour' }], 5)).toEqual({ ms: 300_000, source: 'option' })
+    // 0 means "read it off the plan".
+    expect(cacheTtl([{ kind: 'seven_day' }], 0).source).toBe('plan')
+    expect(lifetimeText(cacheTtl([{ kind: 'five_hour' }]))).toEqual({ lead: '1 hour', rest: ' · subscription plan' })
+    expect(lifetimeText(cacheTtl([]))).toEqual({ lead: '5 minutes', rest: ' · API default' })
+  })
+  test('idle, the cache runs down from the last response, then the next message pays in full', () => {
+    const ttl = cacheTtl([{ kind: 'five_hour' }])
+    const at = 1_000_000_000
+    expect(cacheStateText(ttl, undefined, at, 212_000, false).lead).toBe('no response yet')
+    expect(cacheStateText(ttl, at, at + 8 * 60_000, 212_000, false)).toEqual({ lead: 'warm', rest: ' · about 52m left if idle' })
+    expect(cacheStateText(ttl, at, at + 59.5 * 60_000, 212_000, false).rest).toBe(' · under a minute left if idle')
+    expect(cacheStateText(ttl, at, at + 61 * 60_000, 212_000, false)).toEqual({
+      lead: 'expired',
+      rest: ' · the next message re-reads 212k at full price',
+    })
+    // While a turn runs, every request renews the entry.
+    expect(cacheStateText(ttl, at, at + 61 * 60_000, 212_000, true).lead).toBe('warm')
+  })
 })
 
 describe('marks', () => {

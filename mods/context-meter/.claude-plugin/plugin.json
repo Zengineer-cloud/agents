@@ -1,6 +1,15 @@
 {
   "name": "context-meter",
-  "version": "0.4.0",
-  "description": "A context band above the prompt that warns on quality in tokens (200k fading, 350k dumb zone) and hands off there: a state doc, /clear, the doc read back. Model and effort switchers, the /context breakdown, limits, cost and memory files. Terminal and Desktop Code tab.",
-  "types": "./types/index.d.ts"
+  "version": "0.5.0",
+  "author": { "name": "zennlogic" },
+  "description": "A context band above the prompt that warns on quality in tokens (200k fading, 350k dumb zone) and hands off there: a state doc, /clear, the doc read back. Details shows the /context breakdown, the prompt cache (share served, lifetime, time left), limits, cost and memory files, with model and effort switchers. All figures are real text and every bar keeps 3:1 contrast. Terminal, Desktop Code tab and VS Code.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cacheTtlMinutes": {
+      "type": "number",
+      "title": "Prompt cache lifetime (minutes)",
+      "description": "How long an idle prompt cache entry lives. 0 reads it off the plan: 60 on a subscription seat, 5 on API or cloud-provider billing.",
+      "default": 0
+    }
+  }
 }
