@@ -2,14 +2,17 @@
 
 <!-- Cross-tool contract: read by Claude Code, Cursor, Codex, Copilot, Antigravity,
      and most other agents. Keep it short: every line costs context in every
-     session. Replace each HTML-comment placeholder and delete the sections you
-     don't need. -->
+     session. Write down what an agent could miss by reading the repo, not what
+     it can find there (the stack, the folder layout). Replace each HTML-comment
+     placeholder and delete the sections you don't need. -->
 
 ## Project
 
 - **Name**: <!-- project name -->
 - **Purpose**: <!-- one sentence -->
-- **Stack**: <!-- languages, frameworks, runtime versions -->
+- **Not in the code**: <!-- facts the repo can't show: a consumer that still
+  needs legacy code (an old mobile app), a separate deploy repo, a shared
+  database, a vendor limit. Delete this line if there are none. -->
 
 ## Commands
 
@@ -22,38 +25,29 @@
 
 ## Conventions
 
-- Match the code around you: naming, structure, error handling, comment density.
-- Change only what the task needs. A bug fix does not need nearby cleanup, new
-  options, or a refactor. One logical change per commit, with a message that
-  says why.
-- Search for an existing helper before you write one. Add an abstraction when a
-  second caller exists, not before.
+<!-- Only habits agents still get wrong without a reminder. Cut a line once your
+     model follows it unprompted. -->
+
+- Change only what the task needs: no nearby cleanup, new options, or refactor
+  in a fix. Add an abstraction when a second caller exists, not before.
 - Let errors surface. Don't catch broadly or return a default that looks like
-  success. Validate input where it enters the system, and trust the types and
-  internal callers after that.
-- Comment what the code can't say: the reason, not the change you just made.
+  success.
+- Comment the reason, not the change you just made.
 - Write for the versions this repo pins (lockfile, toolchain file), not the ones
-  you remember. Check the docs for an API or config key you have not seen in
-  this repo.
+  you remember. Check the docs for an API or config key this repo doesn't use yet.
 - Don't silence a checker to get to green (`any`, `# type: ignore`,
   `@SuppressWarnings`, a lint-disable comment). Fix the cause, or say what
   blocks you.
-- Before calling work done, run the format, lint, and test commands above and
-  report what you ran and the result. Remove debug output and scratch files.
-- When a request is ambiguous or a decision is hard to reverse, ask before building.
+- When you report work as done, show the commands you ran and their real output.
 <!-- project-specific conventions: architecture rules, libraries to prefer or avoid -->
 
 ## Tests
 
-- Behavior changes come with tests. For a bug fix, write the failing test first
-  and see it fail for the right reason.
-- Test behavior through the public interface, one behavior per test. A good test
-  fails when the behavior breaks and stays green through a refactor.
-- Use real objects, then fakes. Mock only what you don't control (network,
-  clock, third-party services), and assert on results, not on calls to mocks.
-- Leave out tests that can't fail or add nothing: ones that restate the
-  implementation, cover getters and constants, or check what the compiler or
-  framework already guarantees.
+- For a bug fix, write the failing test first and see it fail for the right reason.
+- Mock only what you don't control (network, clock, third-party services), and
+  assert on results, not on calls to mocks.
+- Leave out tests that can't fail: ones that restate the implementation, or
+  cover getters, constants, or what the compiler already guarantees.
 - A test that looks wrong is a question for the user. Don't edit, skip, or
   delete it to pass, and don't special-case its inputs in the code.
 

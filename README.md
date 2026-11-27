@@ -42,11 +42,14 @@ instead of overwriting them. Node on `PATH` is the only requirement.
 
 ### 2. Fill in AGENTS.md
 
-Replace each `<!-- placeholder -->` with the project's name, stack, and real
-commands, and delete the sections you don't need. Under **Language notes**, keep
+Replace each `<!-- placeholder -->` with the project's name, real commands, and
+the facts an agent can't see in the code, and delete the sections you don't
+need. Leave out what the repo already shows, such as the stack or where files
+live: current models find it, and extra instructions pull them off track. Under **Language notes**, keep
 the blocks for the languages the repo uses (Python, Java, TypeScript) and delete
-the rest. **Conventions** and **Tests** hold the rules that keep agents from
-padding a change, hiding errors, and writing tests that prove nothing.
+the rest. **Conventions** and **Tests** hold only the habits agents still get
+wrong without a reminder: padding a change, hiding errors, and writing tests that
+prove nothing. Cut a line once your model follows it unprompted.
 
 ### 3. Tell the checks hook what to run
 
