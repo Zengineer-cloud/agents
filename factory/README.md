@@ -88,8 +88,19 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
   ship stays attended.
   WARNING: on native Windows an unattended run has no OS sandbox, because the
   sandbox supports only macOS, Linux and WSL2. The permission rules and auto
-  mode are then the only limits. Use WSL2 or a dev container for a run you do
-  not watch.
+  mode are then the only limits. Use WSL2, a dev container, or a cloud
+  session for a run you do not watch.
+- **A cloud session is the safest place for a long run.** It gets its own
+  machine and a fresh checkout, so `.env`, SSH keys and tokens that are not in
+  git are not there, even for hooks and MCP servers outside the sandbox. It
+  keeps running when the laptop closes. Before the first run, set up the
+  environment at claude.ai/code: network access (package registries and
+  GitHub by default), network secrets for API keys (the proxy adds them, the
+  model never sees them), and a setup script. A `SessionStart` hook in the
+  repo's `.claude/settings.json` also runs there. What leaves the machine
+  stays: the repo's deny and ask rules come with the checkout, and the branch
+  reaches you only when it is pushed. Check that the factory plugin loads in
+  that session before you rely on it.
 - **Guard against filler and empty tests.** The test-author writes only tests
   that can fail, with literal expected values and no assertions on mocks. The
   verifier rejects such tests as evidence and flags silenced checkers. The
