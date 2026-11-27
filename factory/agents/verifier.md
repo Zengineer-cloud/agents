@@ -2,7 +2,7 @@
 name: verifier
 description: Independently checks a factory build against its spec. Runs the repository's checks, maps every acceptance criterion to evidence, and looks for weakened tests. Dispatched by the factory build and review skills; never verifies its own work.
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: fable
 effort: high
 color: green
 ---

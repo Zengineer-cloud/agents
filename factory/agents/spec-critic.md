@@ -2,7 +2,7 @@
 name: spec-critic
 description: Reads a factory spec (specs/<slug>/requirements.md and plan.md) and reports what would make an agent build the wrong thing. Dispatched by the factory spec skill before the user approves a spec; not for code review.
 tools: Read, Glob, Grep
-model: inherit
+model: fable
 effort: high
 color: yellow
 ---

@@ -64,7 +64,9 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
   accessibility, viewports, a clean console. The verifier runs each line.
 - **Makers never grade their own work.** One agent writes the tests, the main
   session writes the code, a third agent verifies, and review findings must
-  survive a skeptic. This is the main defense against reward hacking.
+  survive a skeptic. This is the main defense against reward hacking. The
+  judges (spec-critic, verifier) run on `fable`, the builders on the session
+  model. Set `model: inherit` in their frontmatter to change that.
 - **Small, green steps.** One task per commit, checks after every edit (the
   scaffold's `checks.mjs`), so a bad step is cheap to undo.
 - **Files over memory.** All state lives in `specs/<slug>/` and git, so a
