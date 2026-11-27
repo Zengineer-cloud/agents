@@ -40,7 +40,9 @@ independent agent has checked.
    - Refactor: clean up with the tests green. Change no behavior.
    - See it work: when the task changes what a user can reach, run it for
      real before the commit. Drive the page in a browser, or call the
-     endpoint or command. Green tests do not prove a working feature.
+     endpoint or command. Green tests do not prove a working feature. Paste
+     the real output (response, command output, screenshot path) under the
+     task in the status.md Log, so a reviewer who was not there can see it.
    Run the checks from AGENTS.md (the checks hook also runs them when your
    turn ends). Commit with a conventional message, check the box in tasks.md,
    and update "Where to resume".

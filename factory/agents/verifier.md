@@ -29,7 +29,8 @@ Steps:
    expected value the way the code does. It is also not evidence below the
    level the plan names: a UI criterion needs a test that renders the
    component or drives the page, and an API criterion needs one that goes
-   through the route.
+   through the route. It is also not evidence when the build named in the
+   AC's `Rejects:` line would pass it too.
 4. Check test integrity against the base branch with `git diff <base>...`:
    - acceptance tests deleted, skipped (`skip`, `xit`, `@pytest.mark.skip`) or
      with loosened assertions after they were written;

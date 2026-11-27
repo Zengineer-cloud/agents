@@ -31,7 +31,9 @@ right thing. Code waits until the user approves it.
    - `IF <unwanted condition> THEN THE SYSTEM SHALL <response>.`
    - `WHILE <state> THE SYSTEM SHALL <response>.`
    Every AC must be checkable. "Fast" becomes "under 200 ms at p95 for 100
-   items". Number them AC-1, AC-2 and never renumber. Fill Boundaries
+   items". Number them AC-1, AC-2 and never renumber. Give each AC a
+   `Rejects:` line: a plausible wrong build its test must fail, such as a
+   migration that works for new users and signs out existing ones. Fill Boundaries
    (always, ask first, never) and Risk. Mark each gap you cannot close as
    `[NEEDS CLARIFICATION: question]` instead of guessing. Every Settled line
    of `expectations.md` must land in a goal, AC, constraint or non-goal.

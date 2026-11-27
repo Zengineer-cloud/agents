@@ -16,6 +16,9 @@ Rules:
 
 - One or more tests per AC in the table. Put the AC id in the test name or a
   comment on the line above it (`// AC-2`), so the verifier can map them.
+- Each AC's tests must fail on the build its `Rejects:` line names. Set up
+  the state that tells the two apart (an existing session, old data, a second
+  user), not only the fresh-start path that both builds pass.
 - Test behavior through the public interface the plan names. Do not test
   private helpers that do not exist yet, and do not invent an interface the
   plan does not define. If the plan leaves the interface open, stop and report

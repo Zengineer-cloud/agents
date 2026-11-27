@@ -15,10 +15,16 @@
 ## Acceptance criteria
 
 <!-- One line per behavior, EARS style. Each one must be checkable by a test or a
-     named manual step. IDs are stable: never renumber, mark dropped ones ~~struck~~. -->
+     named manual step. IDs are stable: never renumber, mark dropped ones ~~struck~~.
+     Under each AC, "Rejects" names a plausible wrong build that its test must fail:
+     one that a reasonable agent could ship from the same words. Example: for
+     "existing users stay signed in after the login migration", it rejects "moves
+     login to the new API and signs everyone out". -->
 
 - **AC-1**: WHEN <!-- trigger --> THE SYSTEM SHALL <!-- response -->.
+  Rejects: <!-- plausible wrong result the test must fail -->
 - **AC-2**: IF <!-- unwanted condition --> THEN THE SYSTEM SHALL <!-- response -->.
+  Rejects: <!-- plausible wrong result the test must fail -->
 
 ## Constraints
 

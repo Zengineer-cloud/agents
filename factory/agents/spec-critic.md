@@ -18,7 +18,10 @@ decides.
 Report problems in this order, most harmful first:
 
 1. **Untestable criteria.** An AC with no observable result, or one the test
-   strategy table does not map to a test or a named manual step.
+   strategy table does not map to a test or a named manual step. An AC with
+   no `Rejects:` line, or one whose Rejects case would also pass a correct
+   build, or that no agent would plausibly build. Offer the wrong build you
+   think is most likely.
 2. **Ambiguity.** A word two engineers would build differently ("fast",
    "secure", "handle errors", "support X"). Quote it and offer one sharper
    version.
