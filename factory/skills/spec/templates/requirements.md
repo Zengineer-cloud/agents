@@ -38,8 +38,10 @@
 
 ## Risk
 
-<!-- low | medium | high, and one line why. High = auth, money, data loss,
-     public API, or a large blast radius. It sets how hard review looks. -->
+<!-- low | medium | high, and one line why. Low = docs, copy, or an isolated
+     change. High = auth, money, data loss, public API, or a large blast radius.
+     It sets how hard review looks and who approves the merge: low may
+     auto-merge on green checks, medium needs one human review, high needs two. -->
 
 ## Open questions
 

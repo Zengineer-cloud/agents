@@ -76,6 +76,8 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 - **Review scales to risk.** Each spec states low, medium or high risk. Low
   gets `/code-review medium`; medium and high get the review workflow; high
   also gets `/security-review` and a list of files for a person to read.
+  Risk also sets the merge: a low-risk PR may auto-merge on green checks when
+  the user says yes, medium needs one human review, and high needs two.
   The target repo's `REVIEW.md` sets what every review reports and skips.
 - **Unattended runs are opt-in.** After spec approval, `/factory` can print a
   `/goal` line (in session, auto mode) or a headless `claude -p` command with
