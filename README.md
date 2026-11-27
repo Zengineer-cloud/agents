@@ -5,8 +5,9 @@ with sensible guardrails. It is Claude Code–native, with `AGENTS.md` as the
 cross-tool contract that Cursor, Codex, Copilot, and others read too.
 
 It is deliberately small. It leans on Claude Code's built-in controls where they
-exist, and adds one hook for the part that has to be project-specific: running
-your formatter and your tests.
+exist (permission rules, auto mode, the OS sandbox), and adds one hook for the
+part that has to be project-specific: running your formatter and your tests,
+the same ones in each session and in CI.
 
 ## What's in the box
 
@@ -16,10 +17,12 @@ scaffold/                 ← copy this into your repo
 ├── CLAUDE.md             imports AGENTS.md, plus a few Claude-specific notes
 ├── REVIEW.md             what code review reports and skips (managed Code Review, factory)
 ├── .gitignore            lines to add to yours
+├── .github/workflows/
+│   └── checks.yml        runs the verify commands on every pull request
 └── .claude/
-    ├── settings.json     permission rules and hook wiring
+    ├── settings.json     permission rules, sandbox, and hook wiring
     ├── hooks/
-    │   ├── checks.mjs    runs your formatter after edits, your tests before Claude finishes
+    │   ├── checks.mjs    formatter after edits, tests per task and before Claude finishes, CI mode
     │   └── checks.json   the commands it runs (empty until you fill it in)
     └── skills/zenn/      /zenn: optional spec-first workflow for larger work
 providers.md              notes for Cursor / Copilot / Codex / Antigravity / Gemini CLI / Devin
@@ -45,16 +48,16 @@ instead of overwriting them. Node on `PATH` is the only requirement.
 Replace each `<!-- placeholder -->` with the project's name, real commands, and
 the facts an agent can't see in the code, and delete the sections you don't
 need. Leave out what the repo already shows, such as the stack or where files
-live: current models find it, and extra instructions pull them off track. Under **Language notes**, keep
-the blocks for the languages the repo uses (Python, Java, TypeScript) and delete
-the rest. **Conventions** and **Tests** hold only the habits agents still get
+live: current models find it, and extra instructions pull them off track.
+Under **Language notes**, keep the blocks for the languages the repo uses
+(Python, Java, TypeScript) and delete the rest. **Conventions** and **Tests** hold only the habits agents still get
 wrong without a reminder: padding a change, hiding errors, and writing tests that
 prove nothing. Cut a line once your model follows it unprompted.
 
 ### 3. Tell the checks hook what to run
 
-Edit `.claude/hooks/checks.json`. Both lists are empty by default, which turns
-the hook off.
+Edit `.claude/hooks/checks.json`. All three lists are empty by default, which
+turns the hook off.
 
 ```json
 {
@@ -122,7 +125,9 @@ for it.
 | `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, shell downloads (`curl`, `wget`, `Invoke-WebRequest`, `Invoke-RestMethod`), and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
 | Web allowlist | `allow` holds `WebFetch(domain:...)` rules for vendor documentation hosts. Claude reads those without asking. A fetch from any other host prompts, and so does a redirect to another host. Add the docs hosts for your stack, for example `docs.python.org` or `nodejs.org`. List hosts the vendor writes, not hosts anyone can post to (`docs.github.com`, not `github.com`). |
 | Built into Claude Code | Writes to `.claude/`, `.git/`, `.mcp.json`, and shell startup files are never auto-approved. `rm -rf` on the project, home, or root is always stopped. `settings.json` also disables bypass-permissions mode. |
-| Checks hook | Your formatter and tests run without anyone remembering to. |
+| OS sandbox | On macOS, Linux, and WSL2, shell commands and every process they start can't read the denied secret paths, write outside the project, or reach hosts you haven't allowed. |
+| Checks hook | Your formatter runs after each edit, task checks before a task closes, and verify commands before Claude finishes. Exit 2 sends Claude back to fix it. |
+| CI workflow | The same verify commands run on every pull request, whichever session opened it. |
 | `AGENTS.md` | Conventions and intent. It shapes what agents try; it enforces nothing. |
 
 The web allowlist is the only `allow` list: no command or edit is pre-approved.
@@ -200,7 +205,7 @@ that kept repeating across real sessions:
 | `package-gate` | Asks you before any package install, with a registry link per package. |
 | `secret-shield` | Keeps secret files and token values out of shell reads and the transcript. |
 | `repo-lock` | Denies dependency changes with the wrong package manager or from the wrong folder. |
-| `context-meter` | A band above the prompt: context fill against quality marks (30% fading, 40% "dumb zone"), rate limits, and model and effort switchers. |
+| `context-meter` | A band above the prompt: context fill against quality marks (amber from 200k tokens, red from 350k), prompt cache figures, rate limits, and model and effort switchers. |
 | `session-context` | Tells Claude the repo, branch and uncommitted work with each prompt. |
 
 Setup, the full behaviour of each, and how to work on them:
@@ -214,7 +219,10 @@ expect, `/factory:spec` writes a testable spec with backend and frontend
 validation, `/factory:build` writes failing tests first and then the code,
 `/factory:review` runs independent reviewers and refutes weak findings, and
 `/factory:ship` opens the PR, checks CI and the preview, and records lessons.
-You approve the spec, merge, and approve production. It builds on this
+Each acceptance criterion names the wrong build its test must reject. You
+approve the spec and production. The merge scales with risk: a low-risk PR
+may auto-merge on green checks when you say yes, medium needs one human
+review, and high needs two. It builds on this
 scaffold (AGENTS.md commands, the checks hook, the permission rules). Design,
 setup and research: [factory/README.md](factory/README.md).
 
