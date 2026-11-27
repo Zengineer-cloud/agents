@@ -104,7 +104,7 @@ May to October 2026). Local build at the time: v2.1.290.
 | Skills (`skills/<name>/SKILL.md`) | one skill per stage | `${CLAUDE_SKILL_DIR}` points at the skill folder (templates) |
 | Subagents (`agents/<name>.md`) | `spec-critic`, `test-author`, `verifier` | `tools` allowlist, `model`, `effort`, `color`. Plugin agents ignore `permissionMode`, `hooks`, `mcpServers` |
 | `isolation: worktree` | `[P]` tasks in build | branches from the default branch; removed if unchanged |
-| Hooks (`hooks/hooks.json`) | test-lock (`PreToolUse`, `permissionDecision: "ask"`) | scaffold `checks.mjs` covers `PostToolUse` format and `Stop` verify |
+| Hooks (`hooks/hooks.json`) | test-lock (`PreToolUse`, `permissionDecision: "ask"`) | scaffold `checks.mjs` covers `PostToolUse` format, `TaskCompleted` task checks and `Stop` verify |
 | Workflows (`workflows/*.js`, v2.1.154) | `factory-review`: lenses, then skeptics | 16 concurrent agents; scripts cannot touch files; plugin workflows called by name |
 | `/code-review`, `/security-review` | review at low risk, or without workflows | levels low to max, `--fix`, `--comment`; `ultra` runs in the cloud |
 | Plugin evals (`claude plugin eval`, v2.1.269) | `evals/` cases for the stage skills | runs WITH and WITHOUT the plugin; `--runs`, `--max-cost-usd` |

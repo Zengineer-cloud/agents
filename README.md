@@ -59,6 +59,7 @@ the hook off.
     "py": "ruff format {file}",
     "ts,tsx,js": "npx --no-install prettier --write {file}"
   },
+  "task": ["pytest -q --testmon"],
   "verify": ["pytest -q"]
 }
 ```
@@ -66,6 +67,10 @@ the hook off.
 - `format` maps file extensions to a command that runs after Claude edits a file
   of that type. `{file}` is the edited file's path, already quoted. If the command
   fails, its output goes back to Claude to fix.
+- `task` commands run when Claude marks a task complete, if it edited files since
+  the last passing run. Use a fast, changed-only test command (`pytest --testmon`
+  with the pytest-testmon plugin, `vitest run --changed`, `jest --onlyChanged`).
+  If one fails, the task stays open and Claude gets the output.
 - `verify` commands run when Claude finishes a turn in which it edited files.
   If one fails, Claude gets the output and keeps working. The hook blocks once
   per turn, so Claude can never loop on it, and it runs again at the end of the
@@ -78,6 +83,16 @@ the hook off.
 On macOS, Linux, or WSL2, run `/sandbox` in Claude Code. It confines shell
 commands to the project directory and to network hosts you approve. The secret
 paths denied in `settings.json` apply inside the sandbox too.
+
+### 5. Run the same checks in CI
+
+`.github/workflows/checks.yml` runs `node .claude/hooks/checks.mjs ci` on every
+pull request. That runs the `verify` list from `checks.json`, the same commands
+the Stop hook runs, so every PR gets the same checks however its session was set
+up. In CI a tool that isn't installed is a failure, so add your toolchain's setup
+step before "Run checks". Make the job a required check on the main branch.
+Then Auto-fix can send Claude back when it fails, and GitHub auto-merge can wait
+for it.
 
 ## How the guardrails work
 

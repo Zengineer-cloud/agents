@@ -102,6 +102,37 @@ test("a passing verify clears the pending state", () => {
   assert.equal(t.run("verify").status, 0, "nothing edited since the passing run");
 });
 
+test("task keeps the task open when its checks fail, and names it", () => {
+  const t = setup({ format: {}, task: [FAIL], verify: [] });
+  assert.equal(t.run("task").status, 0, "no edits yet");
+  t.edit();
+  const r = t.run("task", { task_subject: "Add login" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /boom/);
+  assert.match(r.stderr, /"Add login" is not complete/);
+});
+
+test("a passing task check clears only the task state", () => {
+  const t = setup({ format: {}, task: [PASS], verify: [FAIL] });
+  t.edit();
+  assert.equal(t.run("task").status, 0);
+  t.setConfig({ format: {}, task: [FAIL], verify: [FAIL] });
+  assert.equal(t.run("task").status, 0, "nothing edited since the passing task run");
+  assert.equal(t.run("verify").status, 2, "the session still verifies at the end");
+});
+
+test("ci runs verify without an edit, and a missing tool fails", () => {
+  const t = setup({ format: {}, verify: [PASS, FAIL] });
+  const r = t.run("ci");
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /PASS {2}node -e "process\.exit\(0\)"/);
+  assert.match(r.stderr, /boom/);
+  t.setConfig({ format: {}, verify: ["definitely-not-installed-xyz"] });
+  assert.equal(t.run("ci").status, 1);
+  t.setConfig({ format: {}, verify: [PASS] });
+  assert.equal(t.run("ci").status, 0);
+});
+
 test("fails open on bad input and honors CLAUDE_SKIP_CHECKS", () => {
   const t = setup({ format: { txt: FAIL }, verify: [FAIL] });
   assert.equal(t.run("format", "not json").status, 0);

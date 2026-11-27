@@ -80,6 +80,19 @@
         ]
       }
     ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/checks.mjs", "task"],
+            "timeout": 300,
+            "statusMessage": "Checking the task"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

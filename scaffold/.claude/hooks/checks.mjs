@@ -3,15 +3,20 @@
 // file is filled in:
 //
 //   { "format": { "py": "ruff format {file}", "ts,tsx": "biome check --write {file}" },
-//     "verify": ["npm test"] }
+//     "task": ["npx vitest run --changed"], "verify": ["npm test"] }
 //
 //   node checks.mjs format   PostToolUse (Edit|Write): run the command configured for
 //                            the edited file's extension. {file} is the file's path.
+//   node checks.mjs task     TaskCompleted: if Claude edited files since the last
+//                            passing run, run the task commands (fast, changed-only
+//                            tests). A failure keeps the task open.
 //   node checks.mjs verify   Stop: if Claude edited files since the last passing run,
 //                            run the verify commands (tests, typecheck).
+//   node checks.mjs ci       CI: run the verify commands every time. Exit 1 on a
+//                            failure, and a tool that isn't installed is a failure.
 //
 // Exit 0 = clean or nothing to do. Exit 2 = a check failed; stderr goes to Claude.
-// A command whose tool isn't installed is skipped, never an error.
+// In the hook modes, a command whose tool isn't installed is skipped, never an error.
 // CLAUDE_SKIP_CHECKS=1 turns both modes off for a session.
 // https://code.claude.com/docs/en/hooks
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -32,16 +37,24 @@ const parse = (read) => {
 const here = dirname(fileURLToPath(import.meta.url));
 const config = parse(() => readFileSync(join(here, "checks.json"), "utf8"));
 const formatters = Object.entries(config.format ?? {});
-const verifiers = [].concat(config.verify ?? []).filter((c) => typeof c === "string" && c.trim());
-if (!formatters.length && !verifiers.length) process.exit(0);
+const commands = (v) => [].concat(v ?? []).filter((c) => typeof c === "string" && c.trim());
+const verifiers = commands(config.verify);
+const taskChecks = commands(config.task);
+const ci = process.argv[2] === "ci";
+if (ci && !verifiers.length) {
+  process.stdout.write("checks.json has no verify commands, so CI checks nothing.\n");
+  process.exit(0);
+}
+if (!formatters.length && !verifiers.length && !taskChecks.length) process.exit(0);
 
-const payload = parse(() => readFileSync(0, "utf8"));
+const payload = ci ? {} : parse(() => readFileSync(0, "utf8"));
 const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const isWin = process.platform === "win32";
 
-// Set when Claude edits a file, cleared when verify passes.
+// Set when Claude edits a file, cleared when that mode's commands pass.
 const session = String(payload.session_id ?? "none").replace(/[^A-Za-z0-9_-]/g, "_");
 const marker = join(tmpdir(), `claude-checks-${session}`);
+const taskMarker = `${marker}-task`;
 
 const norm = (p) => (isWin ? resolve(p).toLowerCase() : resolve(p));
 // CLAUDE_PROJECT_DIR doesn't follow Claude into a git worktree, so run commands in
@@ -64,7 +77,7 @@ function run(cmd, cwd, env = {}) {
     Boolean(r.error) ||
     r.status === 127 ||
     (isWin && r.status === 1 && /is not recognized as an internal or external command/.test(out));
-  return { ok: r.status === 0 || missing, out: out.split(/\r?\n/).slice(-60).join("\n") };
+  return { ok: r.status === 0 || (missing && !ci), out: out.split(/\r?\n/).slice(-60).join("\n") };
 }
 function fail(heading, failures) {
   process.stderr.write(`${heading}\n${failures.map((f) => `── ${f.cmd} ──\n${f.out}`).join("\n")}\n`);
@@ -76,6 +89,7 @@ if (process.argv[2] === "format") {
   const file = raw && (isAbsolute(raw) ? raw : resolve(payload.cwd || projectDir, raw));
   if (!file || !existsSync(file)) process.exit(0);
   if (verifiers.length) writeFileSync(marker, "");
+  if (taskChecks.length) writeFileSync(taskMarker, "");
 
   const ext = extname(file).slice(1).toLowerCase();
   const match = formatters.find(([exts]) =>
@@ -85,6 +99,24 @@ if (process.argv[2] === "format") {
   const cmd = String(match[1]);
   const r = run(cmd.replaceAll("{file}", FILE_REF), rootFor(dirname(file)), { CHECKS_FILE: file });
   if (!r.ok) fail(`Format/lint left issues in ${file}. Fix them:`, [{ cmd, out: r.out }]);
+}
+
+if (process.argv[2] === "task") {
+  if (!existsSync(taskMarker)) process.exit(0);
+  const root = rootFor(payload.cwd || projectDir);
+  const failures = taskChecks.map((cmd) => ({ cmd, ...run(cmd, root) })).filter((r) => !r.ok);
+  const subject = payload.task_subject ? ` "${payload.task_subject}"` : "";
+  if (failures.length) fail(`Checks failed, so task${subject} is not complete. Fix them first:`, failures);
+  rmSync(taskMarker, { force: true });
+}
+
+if (ci) {
+  const failures = verifiers.map((cmd) => ({ cmd, ...run(cmd, projectDir) })).filter((r) => !r.ok);
+  for (const f of verifiers) process.stdout.write(`${failures.some((x) => x.cmd === f) ? "FAIL" : "PASS"}  ${f}\n`);
+  if (failures.length) {
+    process.stderr.write(failures.map((f) => `── ${f.cmd} ──\n${f.out}`).join("\n") + "\n");
+    process.exit(1);
+  }
 }
 
 if (process.argv[2] === "verify") {

@@ -1,0 +1,24 @@
+# Runs the verify commands from .claude/hooks/checks.json on every pull request,
+# the same ones the Stop hook runs, so every session's PR gets the same checks
+# however it was set up. Add your toolchain's setup step (actions/setup-python,
+# actions/setup-java, a package install) before "Run checks".
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Run checks
+        run: node .claude/hooks/checks.mjs ci
