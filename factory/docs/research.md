@@ -42,7 +42,9 @@ median time to merge falling from 11.2 h to 3.1 h over 17,200 PRs.
 | EARS acceptance criteria and `[NEEDS CLARIFICATION]` markers | `requirements.md` template |
 | Always / Ask first / Never boundaries | `requirements.md` Boundaries |
 | Human gate on the plan, not only the diff | spec approval step |
-| Red before green: confirm the test fails first | `test-author` agent |
+| Interview until shared understanding: decisions as a tree, a recommended answer with each question ([grilling](https://github.com/mattpocock/skills/blob/main/skills/productivity/grilling/SKILL.md), checked 2026-11-17; it asks in rounds, the factory asks one at a time) | `grill` skill, `expectations.md` |
+| Red before green: confirm the test fails first | `test-author` agent, red-green-refactor per task in build |
+| Test at the level that proves the behavior; query the UI by role and label | plan Test strategy and Validation, `test-author`, `verifier` |
 | Tests the coder cannot quietly change | `tests.lock` and the test-lock hook |
 | Separate, skeptical, read-only evaluator | `verifier`, review workflow skeptics |
 | Enforce with hooks, not prose | scaffold `checks.mjs`, test-lock hook |
@@ -102,7 +104,7 @@ May to October 2026). Local build at the time: v2.1.290.
 | Skills (`skills/<name>/SKILL.md`) | one skill per stage | `${CLAUDE_SKILL_DIR}` points at the skill folder (templates) |
 | Subagents (`agents/<name>.md`) | `spec-critic`, `test-author`, `verifier` | `tools` allowlist, `model`, `effort`, `color`. Plugin agents ignore `permissionMode`, `hooks`, `mcpServers` |
 | `isolation: worktree` | `[P]` tasks in build | branches from the default branch; removed if unchanged |
-| Hooks (`hooks/hooks.json`) | test-lock (`PreToolUse`, `permissionDecision: "ask"`) | scaffold `checks.mjs` covers `PostToolUse` format and `Stop` verify |
+| Hooks (`hooks/hooks.json`) | test-lock (`PreToolUse`, `permissionDecision: "ask"`) | scaffold `checks.mjs` covers `PostToolUse` format, `TaskCompleted` task checks and `Stop` verify |
 | Workflows (`workflows/*.js`, v2.1.154) | `factory-review`: lenses, then skeptics | 16 concurrent agents; scripts cannot touch files; plugin workflows called by name |
 | `/code-review`, `/security-review` | review at low risk, or without workflows | levels low to max, `--fix`, `--comment`; `ultra` runs in the cloud |
 | Plugin evals (`claude plugin eval`, v2.1.269) | `evals/` cases for the stage skills | runs WITH and WITHOUT the plugin; `--runs`, `--max-cost-usd` |

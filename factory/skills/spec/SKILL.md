@@ -13,27 +13,36 @@ right thing. Code waits until the user approves it.
 
 1. **Pick a slug** (short, kebab-case) and make `specs/<slug>/`. Copy the four
    templates from `${CLAUDE_SKILL_DIR}/templates/` into it. If the folder
-   exists, read it and continue instead.
+   exists, read it, copy only the templates it lacks, and continue. Set
+   `stage: spec`.
 2. **Learn the ground.** Read AGENTS.md and the code the feature touches. Send
    a broad search to an Explore subagent; keep only its conclusions.
-3. **Interview.** Ask the questions that change what gets built: who uses it,
-   inputs and outputs, edge cases, failure behavior, limits, non-goals, how it
-   ships. Ask in one grouped message (AskUserQuestion when choices are clear).
-   Skip what the request or the code already answers. Do one more round only
-   if the answers open new questions.
+3. **Interview.** If `expectations.md` exists (from `/factory:grill`), it
+   holds the user's answers: ask only about its Open list. If not, and the
+   request leaves much open, offer `/factory:grill` first. Otherwise ask the
+   questions that change what gets built: who uses it, inputs and outputs,
+   edge cases, failure behavior, limits, non-goals, how it ships. Ask in one
+   grouped message (AskUserQuestion when choices are clear). Skip what the
+   request or the code already answers. Do one more round only if the answers
+   open new questions.
 4. **Write requirements.md.** Problem, goals, non-goals, then acceptance
    criteria in EARS form, one behavior each:
    - `WHEN <trigger> THE SYSTEM SHALL <response>.`
    - `IF <unwanted condition> THEN THE SYSTEM SHALL <response>.`
    - `WHILE <state> THE SYSTEM SHALL <response>.`
    Every AC must be checkable. "Fast" becomes "under 200 ms at p95 for 100
-   items". Number them AC-1, AC-2 and never renumber. Fill Boundaries
+   items". Number them AC-1, AC-2 and never renumber. Give each AC a
+   `Rejects:` line: a plausible wrong build its test must fail, such as a
+   migration that works for new users and signs out existing ones. Fill Boundaries
    (always, ask first, never) and Risk. Mark each gap you cannot close as
-   `[NEEDS CLARIFICATION: question]` instead of guessing.
+   `[NEEDS CLARIFICATION: question]` instead of guessing. Every Settled line
+   of `expectations.md` must land in a goal, AC, constraint or non-goal.
 5. **Write plan.md.** Design, interfaces and data shapes, files, the test
-   strategy table (every AC maps to a test or a named manual step), risks and
-   rollback, and the deploy lines (preview, production, smoke check). Decide
-   here; do not leave design to the build.
+   strategy table (every AC maps to a test or a named manual step, at the
+   lowest level that proves it), the Validation list for each surface the
+   feature touches (backend, frontend), risks and rollback, and the deploy
+   lines (preview, production, smoke check). Decide here; do not leave design
+   to the build.
 6. **Write tasks.md.** Ordered, one commit each, AC ids on each task. T-1 is
    always "failing acceptance tests". Mark [P] only when a task shares no files
    and no results with other open tasks.

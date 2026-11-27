@@ -3,8 +3,17 @@
   "env": {
     "CLAUDE_CODE_GLOB_NO_IGNORE": "false"
   },
+  "sandbox": {
+    "enabled": true
+  },
   "permissions": {
     "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:developer.mozilla.org)"
+    ],
     "deny": [
       "Read(.env)",
       "Read(.env.*)",
@@ -47,6 +56,14 @@
       "PowerShell(git clean *)",
       "Bash(gh pr merge *)",
       "PowerShell(gh pr merge *)",
+      "Bash(curl *)",
+      "PowerShell(curl *)",
+      "Bash(wget *)",
+      "PowerShell(wget *)",
+      "PowerShell(Invoke-WebRequest *)",
+      "PowerShell(iwr *)",
+      "PowerShell(Invoke-RestMethod *)",
+      "PowerShell(irm *)",
       "Bash(dangerouslyDisableSandbox:true)",
       "Edit(.github/workflows/**)"
     ]
@@ -62,6 +79,19 @@
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/checks.mjs", "format"],
             "timeout": 120,
             "statusMessage": "Formatting"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/checks.mjs", "task"],
+            "timeout": 300,
+            "statusMessage": "Checking the task"
           }
         ]
       }

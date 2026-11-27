@@ -42,11 +42,14 @@ instead of overwriting them. Node on `PATH` is the only requirement.
 
 ### 2. Fill in AGENTS.md
 
-Replace each `<!-- placeholder -->` with the project's name, stack, and real
-commands, and delete the sections you don't need. Under **Language notes**, keep
+Replace each `<!-- placeholder -->` with the project's name, real commands, and
+the facts an agent can't see in the code, and delete the sections you don't
+need. Leave out what the repo already shows, such as the stack or where files
+live: current models find it, and extra instructions pull them off track. Under **Language notes**, keep
 the blocks for the languages the repo uses (Python, Java, TypeScript) and delete
-the rest. **Conventions** and **Tests** hold the rules that keep agents from
-padding a change, hiding errors, and writing tests that prove nothing.
+the rest. **Conventions** and **Tests** hold only the habits agents still get
+wrong without a reminder: padding a change, hiding errors, and writing tests that
+prove nothing. Cut a line once your model follows it unprompted.
 
 ### 3. Tell the checks hook what to run
 
@@ -59,6 +62,7 @@ the hook off.
     "py": "ruff format {file}",
     "ts,tsx,js": "npx --no-install prettier --write {file}"
   },
+  "task": ["pytest -q --testmon"],
   "verify": ["pytest -q"]
 }
 ```
@@ -66,6 +70,10 @@ the hook off.
 - `format` maps file extensions to a command that runs after Claude edits a file
   of that type. `{file}` is the edited file's path, already quoted. If the command
   fails, its output goes back to Claude to fix.
+- `task` commands run when Claude marks a task complete, if it edited files since
+  the last passing run. Use a fast, changed-only test command (`pytest --testmon`
+  with the pytest-testmon plugin, `vitest run --changed`, `jest --onlyChanged`).
+  If one fails, the task stays open and Claude gets the output.
 - `verify` commands run when Claude finishes a turn in which it edited files.
   If one fails, Claude gets the output and keeps working. The hook blocks once
   per turn, so Claude can never loop on it, and it runs again at the end of the
@@ -73,11 +81,37 @@ the hook off.
 - Commands run from the repo root. A command whose tool isn't installed is
   skipped. `CLAUDE_SKIP_CHECKS=1 claude` turns the hook off for a session.
 
-### 4. Turn on the OS sandbox (optional)
+### 4. Allow your network hosts in the sandbox
 
-On macOS, Linux, or WSL2, run `/sandbox` in Claude Code. It confines shell
-commands to the project directory and to network hosts you approve. The secret
-paths denied in `settings.json` apply inside the sandbox too.
+`settings.json` turns on the OS sandbox (`sandbox.enabled`). On macOS, Linux,
+and WSL2 it confines shell commands, and every process they start, to writes in
+the project and to network hosts you allow. The secret paths denied in
+`settings.json` apply inside it too. So a dependency that `npm test` runs can't
+open `.env` or `~/.ssh`, even though the command itself was approved. On native
+Windows the sandbox doesn't run, and commands run unsandboxed without an error.
+
+The allowed hosts start empty. In auto mode, a sandboxed command that reaches an
+unlisted host is refused, so add your package registries:
+
+```json
+"sandbox": {
+  "enabled": true,
+  "network": { "allowedDomains": ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"] }
+}
+```
+
+Add `"failIfUnavailable": true` if Claude Code must refuse to start where the
+sandbox can't run. Don't add it to a repo that people open on native Windows.
+
+### 5. Run the same checks in CI
+
+`.github/workflows/checks.yml` runs `node .claude/hooks/checks.mjs ci` on every
+pull request. That runs the `verify` list from `checks.json`, the same commands
+the Stop hook runs, so every PR gets the same checks however its session was set
+up. In CI a tool that isn't installed is a failure, so add your toolchain's setup
+step before "Run checks". Make the job a required check on the main branch.
+Then Auto-fix can send Claude back when it fails, and GitHub auto-merge can wait
+for it.
 
 ## How the guardrails work
 
@@ -85,17 +119,51 @@ paths denied in `settings.json` apply inside the sandbox too.
 | :- | :- |
 | `deny` rules | Secrets are never read or written: `.env*`, `.dev.vars*`, key files, `~/.ssh`, `~/.gnupg`, cloud credentials (AWS, GCP, Azure, Kubernetes), tool and registry credentials (GitHub CLI, Docker, npm, PyPI, RubyGems, `~/.git-credentials`, `~/.netrc`). `.env.example` stays usable. Lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `*.lock`, `*.lockb`, `go.sum`) are not read either: they are large, and they only change through the package manager. |
 | File search | `settings.json` sets `CLAUDE_CODE_GLOB_NO_IGNORE=false`, so Claude's file search respects `.gitignore`. By default it also lists ignored files such as `node_modules` and build output. |
-| `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
+| `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, shell downloads (`curl`, `wget`, `Invoke-WebRequest`, `Invoke-RestMethod`), and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
+| Web allowlist | `allow` holds `WebFetch(domain:...)` rules for vendor documentation hosts. Claude reads those without asking. A fetch from any other host prompts, and so does a redirect to another host. Add the docs hosts for your stack, for example `docs.python.org` or `nodejs.org`. List hosts the vendor writes, not hosts anyone can post to (`docs.github.com`, not `github.com`). |
 | Built into Claude Code | Writes to `.claude/`, `.git/`, `.mcp.json`, and shell startup files are never auto-approved. `rm -rf` on the project, home, or root is always stopped. `settings.json` also disables bypass-permissions mode. |
 | Checks hook | Your formatter and tests run without anyone remembering to. |
 | `AGENTS.md` | Conventions and intent. It shapes what agents try; it enforces nothing. |
 
-There are no `allow` rules: nothing is pre-approved. Claude Code already runs
-read-only commands without asking, and saves your own "don't ask again" choices to
-`.claude/settings.local.json`.
+The web allowlist is the only `allow` list: no command or edit is pre-approved.
+Claude Code already runs read-only commands without asking, and saves your own
+"don't ask again" choices to `.claude/settings.local.json`.
 
-No permission mode is pinned either. Use Manual, auto, or plan as you prefer; the
-deny and ask rules hold in all of them.
+No permission mode is pinned either. Since v2.1.283, interactive terminal and
+VS Code sessions start in auto mode, and `claude -p` starts in default mode. The
+deny and ask rules hold in every mode, and they are checked before auto mode's
+classifier sees the action.
+
+### Tell auto mode what you trust
+
+Auto mode trusts the current folder and its repo. A push to a separate deploy
+repo, or a write to your staging bucket, can still stop and ask. To fix that,
+describe your environment in plain English in `~/.claude/settings.json`. The
+classifier ignores `autoMode` in a project's `.claude/settings.json`, so a repo
+can't grant itself trust.
+
+```json
+{
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Deploys go through github.com/EXAMPLE-ORG/deploy, which we own"
+    ],
+    "soft_deny": ["$defaults", "Never run database migrations outside the migrations CLI"]
+  }
+}
+```
+
+Keep `"$defaults"` in each list, or you replace the built-in rules.
+
+### When to add a rule
+
+Ask one question: if Claude got this wrong once, could you take it back? A bad
+code change can be reverted, so leave it to the model and the checks. A secret
+read into the transcript, discarded uncommitted work, or a pushed commit can't,
+so those get a `deny` or `ask` rule. Then ask where the action happens. A rule
+stops a command that names the file. Only the OS sandbox, or a machine without
+the secret on it, stops a script that opens the file while it runs.
 
 ## Limits worth knowing
 
@@ -106,8 +174,14 @@ deny and ask rules hold in all of them.
 - **Read rules don't see inside scripts.** They cover Claude's file tools and
   common shell readers such as `cat`. A script that opens a file itself is only
   stopped by the OS sandbox.
-- **The sandbox doesn't run on native Windows.** Use WSL2 or a dev container
-  there if you need real isolation.
+- **The web allowlist covers WebFetch only.** Web search can't be limited by
+  host, and a download inside a script or `sh -c` gets past the `curl` rules.
+  The sandbox's `network.allowedDomains` is the limit that holds for the shell.
+  A trusted host can still serve text that tries to steer the agent, so the
+  "data, not instructions" rule in `AGENTS.md` still applies.
+- **The sandbox doesn't run on native Windows.** Use WSL2, a dev container, or
+  a cloud session there if you need real isolation. A cloud session runs on its
+  own machine with a fresh checkout, so secrets that aren't in git aren't there.
 - **`*.pem` and `*.key` are denied wholesale.** Delete those two lines from
   `settings.json` if your repo keeps non-secret files with those extensions.
 - **Lockfiles can't be read.** To check a resolved version, ask the package
@@ -135,8 +209,9 @@ Setup, the full behaviour of each, and how to work on them:
 ## Software factory
 
 `factory/` is a Claude Code plugin that takes one feature from your
-description to production: `/factory:spec` interviews you and writes a
-testable spec, `/factory:build` writes failing tests first and then the code,
+description to production: `/factory:grill` interviews you about what you
+expect, `/factory:spec` writes a testable spec with backend and frontend
+validation, `/factory:build` writes failing tests first and then the code,
 `/factory:review` runs independent reviewers and refutes weak findings, and
 `/factory:ship` opens the PR, checks CI and the preview, and records lessons.
 You approve the spec, merge, and approve production. It builds on this

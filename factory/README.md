@@ -7,17 +7,21 @@ review it, and ship it. A person decides at every gate.
 ```
  you ──► /factory:spec ──► /factory:build ──► /factory:review ──► /factory:ship ──► live
           │ interview        │ test-author       │ 5 lenses          │ PR + CI
-          │ spec-critic      │ one task/commit   │ refute each       │ preview + smoke
+          │ spec-critic      │ red-green-refactor│ refute each       │ preview + smoke
           ▼                  │ verifier          ▼ finding           ▼ lessons
        GATE: approve      GATE: verifier PASS  GATE: accept     GATE: merge, prod
 ```
+
+Before the spec, `/factory:grill` interviews you about what you expect, one
+question at a time, and writes `expectations.md`. You may skip it.
 
 Every stage reads and writes `specs/<slug>/` in the target repo:
 
 | File | Written by | Holds |
 | :- | :- | :- |
+| `expectations.md` | grill | your answers: settled, ruled out, still open |
 | `requirements.md` | spec | problem, goals, non-goals, EARS acceptance criteria (AC-n) |
-| `plan.md` | spec | design, interfaces, files, AC-to-test table, risks, deploy |
+| `plan.md` | spec | design, interfaces, files, AC-to-test table, backend and frontend validation, risks, deploy |
 | `tasks.md` | spec, build | ordered tasks, one commit each, `[P]` when parallel-safe |
 | `status.md` | every stage | `stage:`, branch, PR, preview, decisions, log, lessons |
 
@@ -29,8 +33,9 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | Part | Kind | Job |
 | :- | :- | :- |
 | `factory` | skill | entry point: lists specs and their stage, routes to the next stage |
+| `grill` | skill | optional stage 0: one question at a time, each with a recommended answer, until your expectations are settled |
 | `spec` | skill | interview, write the four files, critique, ask for approval |
-| `build` | skill | branch, tests first, one task per commit, independent verify |
+| `build` | skill | branch, acceptance tests first, red-green-refactor per task, one task per commit, independent verify |
 | `review` | skill | run the review workflow, fix confirmed findings, re-verify |
 | `ship` | skill | push, PR, CI, preview and smoke check, hand over merge and prod, lessons |
 | `spec-critic` | agent | read-only check of a spec for untestable, vague or missing parts |
@@ -38,16 +43,30 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 | `verifier` | agent | read-only: runs the checks, maps each AC to evidence, finds weakened tests |
 | `factory-review` | workflow | five read-only review lenses, then one skeptic per finding, which marks its verdict ran, traced or argued |
 | `test-lock` | hook | asks the user before an edit to a locked acceptance test (`specs/<slug>/tests.lock`) during build, review and ship; denies it in an unattended run |
-| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, spec stops at the gate, build refuses an unapproved spec, an unattended run prints its launch lines and refuses a spec that is not approved |
+| `evals/` | plugin evals | cases that check the stage skills behave: quick fixes skip the factory, grill asks one question at a time, spec stops at the gate, build refuses an unapproved spec, an unattended run prints its launch lines and refuses a spec that is not approved |
 
 ## Design choices
 
 - **The spec is the contract.** Acceptance criteria in EARS form, each mapped
   to a test before code exists. Code and spec never drift: the spec changes
   first.
+- **Expectations before the spec.** The grill stage asks one question at a
+  time, in dependency order, and gives a recommended answer with each. The
+  spec must carry every settled answer, and the spec-critic checks that.
+- **Test-first at two levels.** The test-author writes the acceptance tests
+  from the spec and they are locked. The builder then works each task
+  red-green-refactor with its own unit tests, and runs the feature for real
+  before the commit.
+- **Validation by surface.** The plan lists checks beyond the AC tests.
+  Backend: input rejection, auth, contract, real-database integration,
+  migration, timeouts, retries. Frontend: tests by role and label, one e2e
+  flow in a browser, empty, loading and error states, keyboard and
+  accessibility, viewports, a clean console. The verifier runs each line.
 - **Makers never grade their own work.** One agent writes the tests, the main
   session writes the code, a third agent verifies, and review findings must
-  survive a skeptic. This is the main defense against reward hacking.
+  survive a skeptic. This is the main defense against reward hacking. The
+  judges (spec-critic, verifier) run on `fable`, the builders on the session
+  model. Set `model: inherit` in their frontmatter to change that.
 - **Small, green steps.** One task per commit, checks after every edit (the
   scaffold's `checks.mjs`), so a bad step is cheap to undo.
 - **Files over memory.** All state lives in `specs/<slug>/` and git, so a
@@ -59,6 +78,8 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
 - **Review scales to risk.** Each spec states low, medium or high risk. Low
   gets `/code-review medium`; medium and high get the review workflow; high
   also gets `/security-review` and a list of files for a person to read.
+  Risk also sets the merge: a low-risk PR may auto-merge on green checks when
+  the user says yes, medium needs one human review, and high needs two.
   The target repo's `REVIEW.md` sets what every review reports and skips.
 - **Unattended runs are opt-in.** After spec approval, `/factory` can print a
   `/goal` line (in session, auto mode) or a headless `claude -p` command with
@@ -67,8 +88,19 @@ Every stage reads and writes `specs/<slug>/` in the target repo:
   ship stays attended.
   WARNING: on native Windows an unattended run has no OS sandbox, because the
   sandbox supports only macOS, Linux and WSL2. The permission rules and auto
-  mode are then the only limits. Use WSL2 or a dev container for a run you do
-  not watch.
+  mode are then the only limits. Use WSL2, a dev container, or a cloud
+  session for a run you do not watch.
+- **A cloud session is the safest place for a long run.** It gets its own
+  machine and a fresh checkout, so `.env`, SSH keys and tokens that are not in
+  git are not there, even for hooks and MCP servers outside the sandbox. It
+  keeps running when the laptop closes. Before the first run, set up the
+  environment at claude.ai/code: network access (package registries and
+  GitHub by default), network secrets for API keys (the proxy adds them, the
+  model never sees them), and a setup script. A `SessionStart` hook in the
+  repo's `.claude/settings.json` also runs there. What leaves the machine
+  stays: the repo's deny and ask rules come with the checkout, and the branch
+  reaches you only when it is pushed. Check that the factory plugin loads in
+  that session before you rely on it.
 - **Guard against filler and empty tests.** The test-author writes only tests
   that can fail, with literal expected values and no assertions on mocks. The
   verifier rejects such tests as evidence and flags silenced checkers. The

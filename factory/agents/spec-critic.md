@@ -2,7 +2,7 @@
 name: spec-critic
 description: Reads a factory spec (specs/<slug>/requirements.md and plan.md) and reports what would make an agent build the wrong thing. Dispatched by the factory spec skill before the user approves a spec; not for code review.
 tools: Read, Glob, Grep
-model: inherit
+model: fable
 effort: high
 color: yellow
 ---
@@ -18,7 +18,10 @@ decides.
 Report problems in this order, most harmful first:
 
 1. **Untestable criteria.** An AC with no observable result, or one the test
-   strategy table does not map to a test or a named manual step.
+   strategy table does not map to a test or a named manual step. An AC with
+   no `Rejects:` line, or one whose Rejects case would also pass a correct
+   build, or that no agent would plausibly build. Offer the wrong build you
+   think is most likely.
 2. **Ambiguity.** A word two engineers would build differently ("fast",
    "secure", "handle errors", "support X"). Quote it and offer one sharper
    version.
@@ -27,7 +30,10 @@ Report problems in this order, most harmful first:
    existing data, rollback. For every input format, ask what happens with
    empty or blank records (a trailing blank line, an empty file). For every
    output, ask what happens when a value cannot be written (an encoding the
-   value does not fit, a full disk, a locked target).
+   value does not fit, a full disk, a locked target). A surface the feature
+   touches (backend, frontend) with no line under Validation in plan.md. A
+   Settled line in `expectations.md`, when that file exists, that no goal,
+   AC, constraint or non-goal carries.
 4. **Contradictions** between requirements, plan and tasks, or with the
    repository as it is (a file the plan edits that does not exist, a command
    AGENTS.md does not define).

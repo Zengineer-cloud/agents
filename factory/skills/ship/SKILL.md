@@ -7,7 +7,7 @@ argument-hint: "<spec slug>"
 # Factory stages 4 and 5: ship and learn
 
 Goal: the feature live, proven by a smoke check, with the lessons written down.
-A person merges and a person approves production.
+A person decides the merge and approves production.
 
 ## Ship
 
@@ -30,8 +30,15 @@ A person merges and a person approves production.
 5. **Preview.** If the host builds a preview per PR (Vercel, Cloudflare
    Pages), find the URL in the PR checks. Otherwise run the plan's preview
    command. Run the smoke check against it, and record `preview:`.
-6. **Hand over.** Tell the user the PR is ready to merge: PR link, CI state,
-   preview URL, smoke result. The user merges. Do not run `gh pr merge`.
+6. **Hand over by risk.** Tell the user the PR is ready: PR link, CI state,
+   preview URL, smoke result. Then read **Risk** in requirements.md. Every
+   tier already had the factory review.
+   - **low** (docs, copy, an isolated change): offer GitHub auto-merge, which
+     merges once the required checks pass. Run `gh pr merge --auto --squash`
+     only when the user says yes in this chat.
+   - **medium**: one person reviews the PR, then the user merges.
+   - **high**: two people review the PR, then the user merges.
+   Otherwise do not run `gh pr merge`.
 7. **Production.** After the merge, if production does not deploy from the
    main branch on its own, show the exact production command and run it only
    when the user says so in this chat. Then run the smoke check against
@@ -57,7 +64,8 @@ A person merges and a person approves production.
 ## Rules
 
 - Deploying to production, merging, and changing DNS, secrets or billing are
-  the user's actions. Prepare them; do not take them.
+  the user's actions. Prepare them; do not take them. Auto-merge on a low-risk
+  PR is the one exception, and only on the user's yes.
 - WARNING: a rollback can lose data. Before a schema or data migration ships,
   confirm the plan's rollback step with the user.
 - If the smoke check fails in production, say so first, then offer the

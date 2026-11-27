@@ -12,14 +12,15 @@ any feature from those files alone.
 
 | Stage | Skill | Output | Gate (a person decides) |
 | :- | :- | :- | :- |
+| 0. Grill | `/factory:grill` | expectations, one question at a time | confirm them |
 | 1. Spec | `/factory:spec` | requirements, plan, tasks, status | approve the spec |
 | 2. Build | `/factory:build` | branch with tests first, then code | verifier PASS |
 | 3. Review | `/factory:review` | confirmed findings, fixed | accept the review |
 | 4. Ship | `/factory:ship` | PR, CI green, preview URL | merge, then production |
 | 5. Learn | part of ship | Lessons, proposed AGENTS.md edits | accept the edits |
 
-`stage:` in `specs/<slug>/status.md` says where a feature is: `spec`,
-`approved`, `build`, `review`, `ship`, `done` or `parked`.
+`stage:` in `specs/<slug>/status.md` says where a feature is: `grill`,
+`spec`, `approved`, `build`, `review`, `ship`, `done` or `parked`.
 
 ## What to do now
 
@@ -27,9 +28,9 @@ any feature from those files alone.
    and the "Where to resume" line. Ask which one to continue, or what to start.
 2. With an idea: say which size it is.
    - **Quick fix** (one file, obvious): skip the factory and just do it.
-   - **Feature**: run `/factory:spec` with the idea.
+   - **Feature**: `/factory:grill` (the user may skip it), then `/factory:spec`.
 3. With a slug: read its `status.md`, then run the skill for that stage.
-   `spec` or `approved` goes to spec or build, `build` to build, and so on.
+   `grill` goes to grill, `spec` to spec, `approved` to build, and so on.
 4. When the user asks to run an approved spec unattended: see below.
 
 ## Run unattended
@@ -86,5 +87,4 @@ merging and production stay the user's through `/factory:ship`.
 
 - Project facts and commands: `AGENTS.md` (format, test, build, deploy).
 - Checks after edits and before a turn ends: the scaffold's `checks.mjs` hook.
-- Guardrails (no secrets, ask before push): the scaffold's `settings.json` and
-  the user-level mods. The factory does not add its own.
+- Guardrails (no secrets, ask before push): scaffold `settings.json`, user mods.

@@ -16,10 +16,21 @@ Rules:
 
 - One or more tests per AC in the table. Put the AC id in the test name or a
   comment on the line above it (`// AC-2`), so the verifier can map them.
+- Each AC's tests must fail on the build its `Rejects:` line names. Set up
+  the state that tells the two apart (an existing session, old data, a second
+  user), not only the fresh-start path that both builds pass.
 - Test behavior through the public interface the plan names. Do not test
   private helpers that do not exist yet, and do not invent an interface the
   plan does not define. If the plan leaves the interface open, stop and report
   that instead of guessing.
+- Write each test at the level the table names. Backend: go through the
+  public edge (route, command, queue handler) with the real database or the
+  repo's own test setup for it, and cover rejected input as well as accepted.
+  Frontend: render the component or drive the page, find elements by role and
+  label as a user does, and assert on what the user sees, including the
+  empty, loading and error states an AC names.
+- Also write the automated checks in the plan's **Validation** list (a
+  contract test, an accessibility scan). Mark each `// V: <check>`.
 - Write no implementation code, stubs that make tests pass, or mocks of the
   unit under test. Mock only true externals (network, clock, third-party APIs).
 - One behavior per test. Assert on the result or the state the AC names, not
@@ -48,5 +59,6 @@ Return:
 
 - the files you added or changed;
 - a table: AC id, test file and name, and the one-line failure message you saw;
-- any AC you could not test automatically, with the manual step you propose;
+- any AC or Validation line you could not test automatically, with the manual
+  step you propose;
 - any gap you found in the spec while writing tests.

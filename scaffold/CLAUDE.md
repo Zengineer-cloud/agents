@@ -3,9 +3,10 @@
 ## Claude Code specifics
 
 - **Checks run automatically.** After each edit, `.claude/hooks/checks.mjs` runs the
-  format/lint command configured for that file type. When you finish a turn in which
-  you edited files, it runs the verify commands (tests, typecheck). Both lists live
-  in `.claude/hooks/checks.json`. If a check reports problems, fix them; don't work
+  format/lint command configured for that file type. When you mark a task complete,
+  it runs the task commands, and a failure keeps the task open. When you finish a
+  turn in which you edited files, it runs the verify commands (tests, typecheck).
+  All three live in `.claude/hooks/checks.json`. If a check reports problems, fix them; don't work
   around the hook.
 - **Edit files with Edit or Write.** The format hook and the diff view only see those
   tools. Don't patch source with inline `python`, `node -e`, or `sed` scripts; for a

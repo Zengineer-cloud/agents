@@ -32,10 +32,20 @@ independent agent has checked.
    `specs/<slug>/tests.lock`. Commit both: `test(<slug>): acceptance tests`.
    From here on the plugin's test-lock hook asks the user before any edit to
    those files. If a test is wrong, fix the spec first, say why, and log it.
-2. **One task at a time.** Implement the next unchecked task. Keep the change
-   to what the task names. Run the checks from AGENTS.md (the checks hook also
-   runs them when your turn ends). Commit with a conventional message, check
-   the box in tasks.md, and update "Where to resume".
+2. **One task at a time, red-green-refactor.** Take the next unchecked task
+   and keep the change to what it names.
+   - Red: for behavior the acceptance tests do not pin down (a helper, an
+     edge the task adds), write a unit test first and watch it fail.
+   - Green: write the least code that passes.
+   - Refactor: clean up with the tests green. Change no behavior.
+   - See it work: when the task changes what a user can reach, run it for
+     real before the commit. Drive the page in a browser, or call the
+     endpoint or command. Green tests do not prove a working feature. Paste
+     the real output (response, command output, screenshot path) under the
+     task in the status.md Log, so a reviewer who was not there can see it.
+   Run the checks from AGENTS.md (the checks hook also runs them when your
+   turn ends). Commit with a conventional message, check the box in tasks.md,
+   and update "Where to resume".
 3. **Parallel tasks.** Tasks marked [P] may run as subagents with
    `isolation: worktree`, one per task, when there are three or more. Merge
    their branches back one at a time and run the checks after each merge.
@@ -57,6 +67,9 @@ independent agent has checked.
 ## Rules
 
 - Never weaken, skip or delete an acceptance test to make it pass.
+- No production code without a failing test that asks for it. Your own unit
+  tests follow the test-author's rules: literal expected values, no
+  assertions on mocks, only tests that can fail.
 - Write the least code that meets the task's ACs, for every valid input and
   not only the tested ones. No options, fallbacks or abstractions the plan
   does not name. Follow Conventions, Tests and Language notes in AGENTS.md.
