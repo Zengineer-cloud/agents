@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Cache, Category, Detail, Handoff, Meter, Setup, Signal } from '../types'
 import {
@@ -687,7 +687,7 @@ export const register: Register = (on, options) => {
         </Text>
       </Box>
     )
-    const section = (title: string, rows: unknown[]) => (
+    const section = (title: string, rows: RenderChildren[]) => (
       <Box key={`section-${title}`} flexDirection="column">
         <Text bold>{title}</Text>
         {rows}
