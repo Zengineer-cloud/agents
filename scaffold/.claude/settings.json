@@ -3,6 +3,9 @@
   "env": {
     "CLAUDE_CODE_GLOB_NO_IGNORE": "false"
   },
+  "sandbox": {
+    "enabled": true
+  },
   "permissions": {
     "disableBypassPermissionsMode": "disable",
     "allow": [

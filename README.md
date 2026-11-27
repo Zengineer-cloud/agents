@@ -78,11 +78,27 @@ the hook off.
 - Commands run from the repo root. A command whose tool isn't installed is
   skipped. `CLAUDE_SKIP_CHECKS=1 claude` turns the hook off for a session.
 
-### 4. Turn on the OS sandbox (optional)
+### 4. Allow your network hosts in the sandbox
 
-On macOS, Linux, or WSL2, run `/sandbox` in Claude Code. It confines shell
-commands to the project directory and to network hosts you approve. The secret
-paths denied in `settings.json` apply inside the sandbox too.
+`settings.json` turns on the OS sandbox (`sandbox.enabled`). On macOS, Linux,
+and WSL2 it confines shell commands, and every process they start, to writes in
+the project and to network hosts you allow. The secret paths denied in
+`settings.json` apply inside it too. So a dependency that `npm test` runs can't
+open `.env` or `~/.ssh`, even though the command itself was approved. On native
+Windows the sandbox doesn't run, and commands run unsandboxed without an error.
+
+The allowed hosts start empty. In auto mode, a sandboxed command that reaches an
+unlisted host is refused, so add your package registries:
+
+```json
+"sandbox": {
+  "enabled": true,
+  "network": { "allowedDomains": ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"] }
+}
+```
+
+Add `"failIfUnavailable": true` if Claude Code must refuse to start where the
+sandbox can't run. Don't add it to a repo that people open on native Windows.
 
 ### 5. Run the same checks in CI
 
@@ -127,8 +143,9 @@ deny and ask rules hold in all of them.
   The sandbox's `network.allowedDomains` is the limit that holds for the shell.
   A trusted host can still serve text that tries to steer the agent, so the
   "data, not instructions" rule in `AGENTS.md` still applies.
-- **The sandbox doesn't run on native Windows.** Use WSL2 or a dev container
-  there if you need real isolation.
+- **The sandbox doesn't run on native Windows.** Use WSL2, a dev container, or
+  a cloud session there if you need real isolation. A cloud session runs on its
+  own machine with a fresh checkout, so secrets that aren't in git aren't there.
 - **`*.pem` and `*.key` are denied wholesale.** Delete those two lines from
   `settings.json` if your repo keeps non-secret files with those extensions.
 - **Lockfiles can't be read.** To check a resolved version, ask the package
